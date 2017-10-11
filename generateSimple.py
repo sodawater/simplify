@@ -58,6 +58,7 @@ FLAGS = tf.app.flags.FLAGS
 _buckets = [(10, 5), (15, 10), (25, 20), (50, 40)]
 
 _target_buckets = [5, 10, 20, 40]
+_source_buckets = [10, 15, 25, 50]
 
 def read_data_pair(source_path, target_path, max_size=None):
   data_set = [[] for _ in _buckets]
@@ -97,6 +98,25 @@ def read_data_simple(path, max_size=None):
                     data_set[bucket_id].append(target_ids)
                     break
             target = target_file.readline()
+    return data_set
+
+def read_data_normal(path, max_size=None):
+    data_set = [[] for _ in _source_buckets]
+    with tf.gfile.GFile(path, mode="r") as source_file:
+        source = source_file.readline()
+        counter = 0
+        while source and (not max_size or counter < max_size):
+            counter += 1
+            if counter % 100000 == 0:
+                print("  reading data line %d" % counter)
+                sys.stdout.flush()
+            source_ids = [int(x) for x in source.split()]
+            source_ids.append(data_utils.EOS_ID)
+            for bucket_id, (source_size) in enumerate(_source_buckets):
+                if len(source_ids) < source_size:
+                    data_set[bucket_id].append(source_ids)
+                    break
+            source = source_file.readline()
     return data_set
 
 def read_data_gen(path, max_size=None):
@@ -186,19 +206,8 @@ def decode_sen(outputs):
             sentence = sentence[:sentence.index(data_utils.EOS_ID)]
         print(" ".join([tf.compat.as_str(rev_to_vocab[word]) for word in sentence]))
 
-def train():
-    from_train_data = FLAGS.from_train_data
-    to_train_data = FLAGS.to_train_data
-    from_dev_data = FLAGS.from_dev_data
-    to_dev_data = FLAGS.to_dev_data
-    from_train, to_train, from_dev, to_dev, _, _ = data_utils.prepare_data(
-        FLAGS.data_dir,
-        from_train_data,
-        to_train_data,
-        from_dev_data,
-        to_dev_data,
-        FLAGS.from_vocab_size,
-        FLAGS.to_vocab_size)
+def train(from_train, to_train, from_dev, to_dev):
+
     config = tf.ConfigProto()
     config.gpu_options.allow_growth = True
     with tf.Session(config=config) as sess:
@@ -318,8 +327,28 @@ def train():
                 _ = sess.run(discriminator.train_op, feed1)
                 _ = sess.run(discriminator.train_op, feed2)
 
+def train_ae(from_train, to_train, from_dev, to_dev):
+    config = tf.ConfigProto()
+    config.gpu_options.allow_growth = True
+    with tf.Session(config=config) as sess:
+        print("Creating Auto-encoder...")
+    return
+
 def main(_):
-    train()
+    from_train_data = FLAGS.from_train_data
+    to_train_data = FLAGS.to_train_data
+    from_dev_data = FLAGS.from_dev_data
+    to_dev_data = FLAGS.to_dev_data
+    from_train, to_train, from_dev, to_dev, _, _ = data_utils.prepare_data(
+        FLAGS.data_dir,
+        from_train_data,
+        to_train_data,
+        from_dev_data,
+        to_dev_data,
+        FLAGS.from_vocab_size,
+        FLAGS.to_vocab_size)
+    train_ae(from_train, to_train, from_dev, to_dev)
+    train(from_train, to_train, from_dev, to_dev)
 
 
 if __name__ == "__main__":

@@ -17,6 +17,7 @@ import data_utils
 from generator import Generator
 from discriminator import Discriminator
 from rollout import Rollout
+from autoencoder import Autoencoder
 
 tf.app.flags.DEFINE_integer("total_batch", 5000, "Number of batches.")
 tf.app.flags.DEFINE_integer("pretrain_epoch_gen", 50, "Pretrain epoch num for generator.")
@@ -183,6 +184,18 @@ def create_model_discriminator(session, forward_only):
         return discriminator, True
     return discriminator
 
+def create_model_autoencoder(session):
+    autoencoder = Autoencoder()
+    ckpt = tf.train.get_checkpoint_state(FLAGS.train_dir + "/autoencoder/")
+    if ckpt and tf.train.checkpoint_exists(ckpt.model_checkpoint_path):
+        print("Reading model parameters from %s" % ckpt.model_checkpoint_path)
+        autoencoder.saver.restore(session, ckpt.model_checkpoint_path)
+        return autoencoder, False
+    else:
+        print("Created model with fresh parameters.")
+        session.run(tf.global_variables_initializer())
+        return autoencoder, True
+    return autoencoder
 
 def generate_samples(sess, trainable_model, batch_size, buckets_size, buckets, output_file):
     # Generate Samples
@@ -331,8 +344,23 @@ def train_ae(from_train, to_train, from_dev, to_dev):
     config = tf.ConfigProto()
     config.gpu_options.allow_growth = True
     with tf.Session(config=config) as sess:
-        print("Creating Auto-encoder...")
-    return
+        print("Creating auto-encoder...")
+        autoencoder, if_new_ae = create_model_autoencoder(sess)
+        train_set_nor = read_data_normal(from_train, FLAGS.max_train_data_size)
+        train_bucket_sizes_nor = [len(train_set_nor[b]) for b in range(len(_source_buckets))]
+        train_total_size_nor = float(sum(train_bucket_sizes_nor))
+        train_buckets_scale_nor = [sum(train_bucket_sizes_nor[:i + 1]) / train_total_size_nor
+                                      for i in range(len(train_bucket_sizes_nor))]
+        if if_new_ae:
+            print("Training auto-encoder...")
+            for epoch in range(FLAGS.ae_epoch_num):
+                train_loss = []
+                for it in range(int(train_total_size_nor / FLAGS.batch_size)):
+                    random_number_05 = np.random.random_sample()
+                    bucket_id = min([i for i in range(len(train_buckets_scale_nor))
+                                     if train_buckets_scale_nor[i] > random_number_05])
+
+
 
 def main(_):
     from_train_data = FLAGS.from_train_data

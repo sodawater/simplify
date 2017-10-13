@@ -359,7 +359,13 @@ def train_ae(from_train, to_train, from_dev, to_dev):
                     random_number_05 = np.random.random_sample()
                     bucket_id = min([i for i in range(len(train_buckets_scale_nor))
                                      if train_buckets_scale_nor[i] > random_number_05])
-
+                    encoder_inputs, target_weights = autoencoder.get_batch(train_set_nor, _source_buckets,
+                                                                                bucket_id)
+                    feed = {autoencoder.x:encoder_inputs,
+                            autoencoder.target_weights:target_weights}
+                    _, loss = sess.run([autoencoder.loss, autoencoder.train_op], feed_dict=feed)
+                    train_loss.append(loss)
+                    print(loss)
 
 
 def main(_):

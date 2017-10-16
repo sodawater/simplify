@@ -406,7 +406,22 @@ def train_ae(hparams):
                                for i in range(len(train_bucket_sizes_nor))]
     num_train_steps = hparams.num_train_epoch * int(train_total_size_nor / FLAGS.batch_size)
     while global_step < num_train_steps:
-
+        random_number_05 = np.random.random_sample()
+        bucket_id = min([i for i in range(len(train_buckets_scale_nor))
+                         if train_buckets_scale_nor[i] > random_number_05])
+        encoder_inputs, decoder_inputs, targets, target_weights, source_sequence_length, target_sequence_length = train_model.model.get_batch(
+            train_set_nor, _source_buckets,
+            bucket_id, ae_hparams.batch_size)
+        feed = {train_model.model.encoder_input_ids:encoder_inputs,
+                train_model.model.encoder_input_length:source_sequence_length,
+                train_model.model.decoder_input_ids:decoder_inputs,
+                train_model.model.decoder_input_length:target_sequence_length,
+                train_model.model.targets:targets,
+                train_model.model.target_weights:target_weights}
+        loss, _, global_step= train_sess.run([train_model.model.loss, train_model.model.train_op, train_model.model.global_step], feed_dict=feed)
+        print(loss)
+        #if global_step % hparams.steps_per_eval:
+        #    continue
 
 
     """

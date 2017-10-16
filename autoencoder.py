@@ -5,7 +5,51 @@ import data_utils
 from tensorflow.python.layers import core as layers_core
 
 class Autoencoder():
-    def __init__(self, num_emb, batch_size, emb_dim, hidden_dim, max_seqlen, start_token, num_layers, use_lstm=True, learning_rate=0.01):
+    def __init__(self, hparams, mode):
+        self.vocab_size = hparams.from_vocab_size
+        self.num_units = hparams.num_units
+        self.emb_dim = hparams.emb_dim
+        self.num_layers = hparams.num_layers
+        self.learning_rate = tf.Variable(float(hparams.learning_rate), trainable=False)
+        self.clip_value = hparams.clip_value
+
+        if mode != tf.contrib.learn.ModeKeys.INFER:
+            self.encoder_input_ids = tf.placeholder(dtype=tf.int32, shape=[None,None])
+            self.encoder_input_length = tf.placeholder(dtype=tf.int32, shape=[None])
+            self.decoder_input_ids = tf.placeholder(dtype=tf.int32, shape=[None,None])
+            self.decoder_input_length = tf.placeholder(dtype=tf.int32, shape=[None])
+        else:
+            self.encoder_input_ids = tf.placeholder(dtype=tf.int32, shape=[1, None])
+            self.encoder_input_length = tf.placeholder(dtype=tf.int32, shape=[1])
+
+        with tf.variable_scope("embedding") as scope:
+            self.embeddings = tf.Variable(self.init_matrix([self.vocab_size, self.emb_dim]))
+
+        with tf.variable_scope("projection") as scope:
+            self.output_layer = layers_core.Dense(self.num_units)
+
+        with tf.variable_scope("encoder") as scope:
+            if self.num_layers > 1:
+                encoder_cell = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.BasicLSTMCell(self.num_units) for _ in range(self.num_layers)])
+            else:
+                encoder_cell = tf.contrib.rnn.BasicLSTMCell(self.num_units)
+
+            self.encoder_inputs = tf.nn.embedding_lookup(self.embeddings, self.encoder_input_ids)
+            encoder_outputs, encoder_state = tf.nn.dynamic_rnn(cell=encoder_cell,
+                                                               inputs=self.encoder_inputs,
+                                                               dtype=tf.float32,
+                                                               sequence_length=self.encoder_input_length)
+
+        with tf.variable_scope("decoder") as scope:
+            attention_mechanism = tf.contrib.seq2seq.LuongAttention(self.num_units, encoder_outputs)
+            decoder_cell = tf.contrib.seq2seq.AttentionWrapper(tf.contrib.rnn.BasicLSTMCell(self.num_units),
+                                                               attention_mechanism,
+                                                               attention_layer_size=self.num_units)
+            if self.num_layers > 1:
+                decoder_cell = tf.contrib.rnn.MultiRNNCell([decoder_cell for _ in range(self.num_layers)])
+            if mode != tf.contrib.learn.ModeKeys.INFER:
+
+        """
         self.num_emb = num_emb
         self.batch_size = batch_size
         self.emb_dim = emb_dim
@@ -100,7 +144,7 @@ class Autoencoder():
         self.train_op = optimizer.apply_gradients(zip(clipped_gradients, params), global_step=self.global_step)
 
 
-        """
+        
         self.projection_w = tf.get_variable('projection_w', shape=[hidden_dim, num_emb],
                                             initializer=tf.contrib.layers.xavier_initializer())
         self.projection_b = tf.get_variable('projection_b', shape=[num_emb],
@@ -130,8 +174,9 @@ class Autoencoder():
 
         self.train_op = optimizer.apply_gradients(zip(gradients, v),
                                                   global_step=self.global_step)
-        """
+        
         self.saver = tf.train.Saver(tf.global_variables())
+        """
 
 
 

@@ -19,7 +19,9 @@ from discriminator import Discriminator
 from rollout import Rollout
 from autoencoder import Autoencoder
 
+tf.app.flags.DEFINE_string("ae_ckpt_path", "data/wtm/data/wikilarge/model/ae/", "ae model checkpoint path")
 tf.app.flags.DEFINE_integer("total_batch", 5000, "Number of batches.")
+tf.app.flags.DEFINE_integer("ae_epoch_num", 100, "train epoch num for ae")
 tf.app.flags.DEFINE_integer("pretrain_epoch_gen", 50, "Pretrain epoch num for generator.")
 tf.app.flags.DEFINE_integer("pretrain_epoch_dis", 50, "Pretrain epoch num for discriminator.")
 tf.app.flags.DEFINE_integer("cnn_seq_len", 25, "Length of the sequence fed to CNN.")
@@ -185,7 +187,13 @@ def create_model_discriminator(session, forward_only):
     return discriminator
 
 def create_model_autoencoder(session):
-    autoencoder = Autoencoder()
+    autoencoder = Autoencoder(FLAGS.from_vocab_size,
+                              FLAGS.batch_size,
+                              FLAGS.size,
+                              FLAGS.size,
+                              50,
+                              2,
+                              data_utils.GO_ID)
     ckpt = tf.train.get_checkpoint_state(FLAGS.train_dir + "/autoencoder/")
     if ckpt and tf.train.checkpoint_exists(ckpt.model_checkpoint_path):
         print("Reading model parameters from %s" % ckpt.model_checkpoint_path)
@@ -359,13 +367,26 @@ def train_ae(from_train, to_train, from_dev, to_dev):
                     random_number_05 = np.random.random_sample()
                     bucket_id = min([i for i in range(len(train_buckets_scale_nor))
                                      if train_buckets_scale_nor[i] > random_number_05])
-                    encoder_inputs, target_weights = autoencoder.get_batch(train_set_nor, _source_buckets,
+                    encoder_inputs, decoder_inputs, targets, target_weights, source_sequence_length = autoencoder.get_batch(train_set_nor, _source_buckets,
                                                                                 bucket_id)
-                    feed = {autoencoder.x:encoder_inputs,
-                            autoencoder.target_weights:target_weights}
-                    _, loss = sess.run([autoencoder.loss, autoencoder.train_op], feed_dict=feed)
+                    feed = {autoencoder.input_ids:encoder_inputs,
+                            autoencoder.targets:targets,
+                            autoencoder.decoder_inputs:decoder_inputs,
+                            autoencoder.target_weights:target_weights,
+                            autoencoder.source_sequence_length:source_sequence_length,
+                            autoencoder.length:_source_buckets[bucket_id]}
+                    loss, _ = sess.run([autoencoder.loss, autoencoder.train_op], feed_dict=feed)
                     train_loss.append(loss)
-                    print(loss)
+                    """
+                    if it % 500 == 0:
+                        test_in, test_out = autoencoder.decode(sess, encoder_inputs[0])
+                        for i in range(len(test_in)):
+                            print("test_in:  ", test_in[i])
+                            print("test_out:  ", test_out[i])
+                        autoencoder.saver.save(sess, FLAGS.ae_ckpt_path, global_step=autoencoder.global_step)
+                    """
+
+                    print(_source_buckets[bucket_id]," ",loss)
 
 
 def main(_):
@@ -382,7 +403,7 @@ def main(_):
         FLAGS.from_vocab_size,
         FLAGS.to_vocab_size)
     train_ae(from_train, to_train, from_dev, to_dev)
-    train(from_train, to_train, from_dev, to_dev)
+    #train(from_train, to_train, from_dev, to_dev)
 
 
 if __name__ == "__main__":

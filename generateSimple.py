@@ -44,7 +44,7 @@ def add_arguments(parser):
                         help="Valid data_src path")
     parser.add_argument("--to_valid_data", type=str, default="/data/wtm/data/wikilarge/wiki.full.aner.ori.valid.dst",
                         help="Valid data_dst path")
-    parser.add_argument("--ae_ckpt_path", type=str, default="data/wtm/data/wikilarge/model/ae/", help="ae model checkpoint path")
+    parser.add_argument("--ae_ckpt_dir", type=str, default="/data/wtm/data/wikilarge/model/ae/", help="ae model checkpoint directory")
 
     parser.add_argument("--max_train_data_size", type=int, default=0, help="Limit on the size of training data (0: no limit)")
     parser.add_argument("--attention", type=str, default="", help="""\
@@ -53,14 +53,16 @@ def add_arguments(parser):
           """)
     parser.add_argument("--from_vocab_size", type=int, default=50000, help="NormalWiki vocabulary size")
     parser.add_argument("--to_vocab_size", type=int, default=30000, help="SimpleWiki vocabulary size")
-    parser.add_argument("--num_layers", type=int, default=1, help="Number of layers in the model")
+    parser.add_argument("--num_layers", type=int, default=2, help="Number of layers in the model")
     parser.add_argument("--num_units", type=int, default=256, help="Size of each model layer")
     parser.add_argument("--emb_dim", type=int, default=256, help="Dimension of word embedding")
     parser.add_argument("--batch_size", type=int, default=32, help="Batch size to use during training")
     parser.add_argument("--max_gradient_norm", type=float, default=5.0, help="Clip gradients to this norm")
     parser.add_argument("--learning_rate_decay_factor", type=float, default=0.99, help="Learning rate decays by this much")
-    parser.add_argument("--learning_rate", type=float, default=0.5, help="Learning rate")
+    parser.add_argument("--learning_rate", type=float, default=0.001, help="Learning rate")
 
+    parser.add_argument("--num_train_epoch", type=int, default=100, help="Number of epoch for training")
+    parser.add_argument("--steps_per_eval", type=int, default=200, help="How many training steps to do per eval/checkpoint")
 
 
 # We use a number of buckets and pad to the closest one for efficiency.
@@ -224,18 +226,6 @@ def create_model_autoencoder(hparams):
     return TrainModel(graph=train_graph, model=train_model), EvalModel(graph=eval_graph, model=eval_model), InferModel(
         graph=infer_graph, model=infer_model)
 
-    """
-    ckpt = tf.train.get_checkpoint_state(FLAGS.train_dir + "/autoencoder/")
-    if ckpt and tf.train.checkpoint_exists(ckpt.model_checkpoint_path):
-        print("Reading model parameters from %s" % ckpt.model_checkpoint_path)
-        autoencoder.saver.restore(session, ckpt.model_checkpoint_path)
-        return autoencoder, False
-    else:
-        print("Created model with fresh parameters.")
-        session.run(tf.global_variables_initializer())
-        return autoencoder, True
-    return autoencoder
-    """
 def generate_samples(sess, trainable_model, batch_size, buckets_size, buckets, output_file):
     # Generate Samples
     generated_samples = []
@@ -381,7 +371,7 @@ def train(from_train, to_train, from_dev, to_dev):
 
 def train_ae(hparams):
     ae_hparams = copy.deepcopy(hparams)
-    ae_hparams.add_hparam(name="num_train_epoch", value=100)
+    ae_hparams.add_hparam(name="ae_ckpt_path", value=os.path.join(hparams.ae_ckpt_dir, "ae.ckpt"))
     train_model, eval_model, infer_model = create_model_autoencoder(ae_hparams)
     config =tf.ConfigProto()
     config.gpu_options.allow_growth = True
@@ -404,7 +394,14 @@ def train_ae(hparams):
     train_total_size_nor = float(sum(train_bucket_sizes_nor))
     train_buckets_scale_nor = [sum(train_bucket_sizes_nor[:i + 1]) / train_total_size_nor
                                for i in range(len(train_bucket_sizes_nor))]
-    num_train_steps = hparams.num_train_epoch * int(train_total_size_nor / FLAGS.batch_size)
+
+    valid_set_nor = read_data_normal(ae_hparams.from_valid, ae_hparams.max_train_data_size)
+    valid_bucket_sizes_nor = [len(valid_set_nor[b]) for b in range(len(_source_buckets))]
+    valid_total_size_nor = float(sum(valid_bucket_sizes_nor))
+    valid_buckets_scale_nor = [sum(valid_bucket_sizes_nor[:i + 1]) / valid_total_size_nor
+                               for i in range(len(valid_bucket_sizes_nor))]
+
+    num_train_steps = ae_hparams.num_train_epoch * int(train_total_size_nor / FLAGS.batch_size)
     while global_step < num_train_steps:
         random_number_05 = np.random.random_sample()
         bucket_id = min([i for i in range(len(train_buckets_scale_nor))
@@ -418,59 +415,42 @@ def train_ae(hparams):
                 train_model.model.decoder_input_length:target_sequence_length,
                 train_model.model.targets:targets,
                 train_model.model.target_weights:target_weights}
-        loss, _, global_step= train_sess.run([train_model.model.loss, train_model.model.train_op, train_model.model.global_step], feed_dict=feed)
-        print(loss)
-        #if global_step % hparams.steps_per_eval:
-        #    continue
+        loss, _, global_step= train_sess.run([train_model.model.loss,
+                                              train_model.model.train_op,
+                                              train_model.model.global_step], feed_dict=feed)
 
+        #print(loss/_source_buckets[bucket_id])
+        if global_step % 50 == 0:
+            print(loss / _source_buckets[bucket_id])
+        if global_step % ae_hparams.steps_per_eval == 0:
+            train_model.model.saver.save(train_sess, ae_hparams.ae_ckpt_path, global_step=global_step)
+            ckpt = tf.train.get_checkpoint_state(ae_hparams.ae_ckpt_dir)
+            if ckpt and tf.train.checkpoint_exists(ckpt.model_checkpoint_path):
+                eval_model.model.saver.restore(eval_sess, ckpt.model_checkpoint_path)
+            else:
+                raise ValueError("ckpt file not found.")
+            random_number_06 = np.random.random_sample()
+            bucket_id = min([i for i in range(len(valid_buckets_scale_nor))
+                             if valid_buckets_scale_nor[i] > random_number_06])
+            encoder_inputs, decoder_inputs, targets, target_weights, source_sequence_length, target_sequence_length = train_model.model.get_batch(
+                train_set_nor, _source_buckets,
+                bucket_id, ae_hparams.batch_size)
+            feed = {eval_model.model.encoder_input_ids: encoder_inputs,
+                    eval_model.model.encoder_input_length: source_sequence_length,
+                    eval_model.model.decoder_input_ids: decoder_inputs,
+                    eval_model.model.decoder_input_length: target_sequence_length,
+                    eval_model.model.targets: targets,
+                    eval_model.model.target_weights: target_weights}
+            loss = eval_sess.run(eval_model.model.loss, feed_dict=feed)
+            #print(loss)
+            print("step %d with eval loss %f" % (global_step, loss/_source_buckets[bucket_id]))
 
-    """
-    config = tf.ConfigProto()
-    config.gpu_options.allow_growth = True
-    ae_hparams = copy.deepcopy(hparams)
-    with tf.Session(config=config) as sess:
-        print("Creating auto-encoder...")
-        autoencoder, if_new_ae = create_model_autoencoder(sess)
-        train_set_nor = read_data_normal(ae_hparams.from_train, FLAGS.max_train_data_size)
-        train_bucket_sizes_nor = [len(train_set_nor[b]) for b in range(len(_source_buckets))]
-        train_total_size_nor = float(sum(train_bucket_sizes_nor))
-        train_buckets_scale_nor = [sum(train_bucket_sizes_nor[:i + 1]) / train_total_size_nor
-                                      for i in range(len(train_bucket_sizes_nor))]
-        if if_new_ae:
-            print("Training auto-encoder...")
-            for epoch in range(FLAGS.ae_epoch_num):
-                train_loss = []
-                for it in range(int(train_total_size_nor / FLAGS.batch_size)):
-                    random_number_05 = np.random.random_sample()
-                    bucket_id = min([i for i in range(len(train_buckets_scale_nor))
-                                     if train_buckets_scale_nor[i] > random_number_05])
-                    encoder_inputs, decoder_inputs, targets, target_weights, source_sequence_length = autoencoder.get_batch(train_set_nor, _source_buckets,
-                                                                                bucket_id)
-                    feed = {autoencoder.input_ids:encoder_inputs,
-                            autoencoder.targets:targets,
-                            autoencoder.decoder_inputs:decoder_inputs,
-                            autoencoder.target_weights:target_weights,
-                            autoencoder.source_sequence_length:source_sequence_length,
-                            autoencoder.length:_source_buckets[bucket_id]}
-                    loss, _ = sess.run([autoencoder.loss, autoencoder.train_op], feed_dict=feed)
-                    train_loss.append(loss)
-
-                    if it % 500 == 0:
-                        test_in, test_out = autoencoder.decode(sess, encoder_inputs[0])
-                        for i in range(len(test_in)):
-                            print("test_in:  ", test_in[i])
-                            print("test_out:  ", test_out[i])
-                        autoencoder.saver.save(sess, FLAGS.ae_ckpt_path, global_step=autoencoder.global_step)
-
-
-                    print(_source_buckets[bucket_id]," ",loss)
-    """
 def create_hparams(flags):
     return tf.contrib.training.HParams(
         # dir path
         data_dir=flags.data_dir,
         train_dir=flags.train_dir,
-        ae_ckpt_path=flags.ae_ckpt_path,
+        ae_ckpt_dir=flags.ae_ckpt_dir,
 
         # data params
         batch_size=flags.batch_size,
@@ -483,6 +463,9 @@ def create_hparams(flags):
         EOS_ID=data_utils.EOS_ID,
         PAD_ID=data_utils.PAD_ID,
         emb_dim=flags.emb_dim,
+        max_train_data_size = flags.max_train_data_size,
+        num_train_epoch = flags.num_train_epoch,
+        steps_per_eval = flags.steps_per_eval,
 
         # ae params
         num_units=flags.num_units,
@@ -490,26 +473,26 @@ def create_hparams(flags):
         learning_rate=flags.learning_rate,
         clip_value=flags.max_gradient_norm,
         decay_factor=flags.learning_rate_decay_factor
-
     )
+
 def main(_):
     from_train_data = FLAGS.from_train_data
     to_train_data = FLAGS.to_train_data
-    from_dev_data = FLAGS.from_dev_data
-    to_dev_data = FLAGS.to_dev_data
-    from_train, to_train, from_dev, to_dev, _, _ = data_utils.prepare_data(
+    from_valid_data = FLAGS.from_valid_data
+    to_valid_data = FLAGS.to_valid_data
+    from_train, to_train, from_valid, to_valid, _, _ = data_utils.prepare_data(
         FLAGS.data_dir,
         from_train_data,
         to_train_data,
-        from_dev_data,
-        to_dev_data,
+        from_valid_data,
+        to_valid_data,
         FLAGS.from_vocab_size,
         FLAGS.to_vocab_size)
     hparams = create_hparams(FLAGS)
     hparams.add_hparam(name="from_train", value=from_train)
     hparams.add_hparam(name="to_train", value=to_train)
-    hparams.add_hparam(name="from_dev", value=from_dev)
-    hparams.add_hparam(name="to_dev", value=to_dev)
+    hparams.add_hparam(name="from_valid", value=from_valid)
+    hparams.add_hparam(name="to_valid", value=to_valid)
     from_vocab_path = os.path.join(hparams.data_dir, "vocab%d.from" % hparams.from_vocab_size)
     to_vocab_path = os.path.join(hparams.data_dir, "vocab%d.to" % hparams.to_vocab_size)
     train_ae(hparams)
@@ -520,4 +503,5 @@ if __name__ == "__main__":
     my_parser = argparse.ArgumentParser()
     add_arguments(my_parser)
     FLAGS, remaining = my_parser.parse_known_args()
+    print(FLAGS)
     tf.app.run()

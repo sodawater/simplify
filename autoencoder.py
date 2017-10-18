@@ -62,12 +62,13 @@ class Autoencoder():
                 my_decoder = tf.contrib.seq2seq.BasicDecoder(cell=decoder_cell,
                                                              helper=helper,
                                                              initial_state=initial_state,
+                                                             output_layer=self.output_layer
                                                              )
                 decoder_outputs, decoder_state, decoder_output_len = tf.contrib.seq2seq.dynamic_decode(my_decoder,
                                                                                                        maximum_iterations=self.max_seq_length * 2,
-                                                                                                       swap_memory=True)
+                                                                                                       swap_memory=True,)
                 self.sample_id = decoder_outputs.sample_id
-                self.logits = self.output_layer(decoder_outputs.rnn_output)
+                self.logits = decoder_outputs.rnn_output
             else:
                 helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(self.embeddings, [hparams.GO_ID], hparams.EOS_ID)
                 initial_state = decoder_cell.zero_state(self.batch_size, tf.float32).clone(cell_state=encoder_state)

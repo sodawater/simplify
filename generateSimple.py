@@ -18,6 +18,7 @@ from generator import Generator
 from discriminator import Discriminator
 from rollout import Rollout
 from autoencoder import Autoencoder
+from birnn_seq2seq import BiRNN_seq2seq
 import argparse
 import copy
 import collections
@@ -48,7 +49,10 @@ def add_arguments(parser):
                         help="Test data_src path")
     parser.add_argument("--to_test_data", type=str, default="/data/wtm/data/wikilarge/wiki.full.aner.test.dst",
                         help="Test data_dst path")
-    parser.add_argument("--ae_ckpt_dir", type=str, default="/data/wtm/data/wikilarge/model/ae/", help="ae model checkpoint directory")
+    parser.add_argument("--ae_ckpt_dir", type=str, default="/data/wtm/data/wikilarge/model/ae/",
+                        help="ae model checkpoint directory")
+    parser.add_argument("--nmt_ckpt_dir", type=str, default="/data/wtm/data/wikilarge/model/nmt/",
+                        help="nmt model checkpoint directory")
 
     parser.add_argument("--max_train_data_size", type=int, default=0, help="Limit on the size of training data (0: no limit)")
     parser.add_argument("--attention", type=str, default="", help="""\
@@ -230,6 +234,22 @@ def create_model_autoencoder(hparams):
     return TrainModel(graph=train_graph, model=train_model), EvalModel(graph=eval_graph, model=eval_model), InferModel(
         graph=infer_graph, model=infer_model)
 
+def create_model(hparams, model):
+    print("Creating birnn_seq2seq_model...")
+    train_graph = tf.Graph()
+    with train_graph.as_default():
+        train_model = model(hparams, tf.contrib.learn.ModeKeys.TRAIN)
+
+    eval_graph = tf.Graph()
+    with eval_graph.as_default():
+        eval_model = model(hparams, tf.contrib.learn.ModeKeys.EVAL)
+
+    infer_graph = tf.Graph()
+    with infer_graph.as_default():
+        infer_model = model(hparams, tf.contrib.learn.ModeKeys.INFER)
+    return TrainModel(graph=train_graph, model=train_model), EvalModel(graph=eval_graph, model=eval_model), InferModel(
+        graph=infer_graph, model=infer_model)
+
 def generate_samples(sess, trainable_model, batch_size, buckets_size, buckets, output_file):
     # Generate Samples
     generated_samples = []
@@ -376,14 +396,14 @@ def train(from_train, to_train, from_dev, to_dev):
 def train_ae(hparams, train=True, interact=False):
     ae_hparams = copy.deepcopy(hparams)
     ae_hparams.add_hparam(name="ae_ckpt_path", value=os.path.join(hparams.ae_ckpt_dir, "ae.ckpt"))
-    train_model, eval_model, infer_model = create_model_autoencoder(ae_hparams)
+    train_model, eval_model, infer_model = create_model(ae_hparams, Autoencoder)
     config =tf.ConfigProto()
     config.gpu_options.allow_growth = True
     train_sess = tf.Session(config=config, graph=train_model.graph)
     eval_sess = tf.Session(config=config, graph=eval_model.graph)
     infer_sess = tf.Session(config=config, graph=infer_model.graph)
 
-    ckpt = tf.train.get_checkpoint_state(FLAGS.train_dir + "/autoencoder/")
+    ckpt = tf.train.get_checkpoint_state(ae_hparams.ae_ckpt_dir)
     global_step = 0
     with train_model.graph.as_default():
         if ckpt and tf.train.checkpoint_exists(ckpt.model_checkpoint_path):
@@ -438,7 +458,7 @@ def train_ae(hparams, train=True, interact=False):
                 bucket_id = min([i for i in range(len(valid_buckets_scale_nor))
                                  if valid_buckets_scale_nor[i] > random_number_06])
                 encoder_inputs, decoder_inputs, targets, target_weights, source_sequence_length, target_sequence_length = train_model.model.get_batch(
-                    train_set_nor, _source_buckets,
+                    valid_set_nor, _source_buckets,
                     bucket_id, ae_hparams.batch_size)
                 feed = {eval_model.model.encoder_input_ids: encoder_inputs,
                         eval_model.model.encoder_input_length: source_sequence_length,
@@ -492,13 +512,129 @@ def train_ae(hparams, train=True, interact=False):
                     outfile(" ".join([tf.compat.as_str(rev_to_vocab[output]) for output in sample_outputs]) + "\n")
                 file.close()
                 outfile.close()
-
-
-
-
         else:
             raise ValueError("ckpt file not found.")
 
+def train_nmt(hparams, train=True, interact=False):
+    nmt_hparams = copy.deepcopy(hparams)
+    train_model, eval_model, infer_model = create_model(nmt_hparams, BiRNN_seq2seq)
+    config = tf.ConfigProto()
+    config.gpu_options.allow_growth = True
+    train_sess = tf.Session(config=config, graph=train_model.graph)
+    eval_sess = tf.Session(config=config, graph=eval_model.graph)
+    infer_sess = tf.Session(config=config, graph=infer_model.graph)
+
+    ckpt = tf.train.get_checkpoint_state(nmt_hparams.nmt_ckpt_dir)
+    global_step = 0
+    with train_model.graph.as_default():
+        if ckpt and tf.train.checkpoint_exists(ckpt.model_checkpoint_path):
+            print("Reading model parameters from %s" % ckpt.model_checkpoint_path)
+            train_model.model.saver.restore(train_sess, ckpt.model_checkpoint_path)
+            global_step = train_model.model.global_step.eval(session=train_sess)
+        else:
+            train_sess.run(tf.global_variables_initializer())
+
+    train_set_pair = read_data_pair(nmt_hparams.from_train, nmt_hparams.max_train_data_size)
+    train_bucket_sizes_pair = [len(train_set_pair[b]) for b in range(len(_buckets))]
+    train_total_size_pair = float(sum(train_bucket_sizes_pair))
+    train_buckets_scale_pair = [sum(train_bucket_sizes_pair[:i + 1]) / train_total_size_pair
+                               for i in range(len(train_bucket_sizes_pair))]
+
+    valid_set_pair = read_data_pair(nmt_hparams.from_valid, nmt_hparams.max_train_data_size)
+    valid_bucket_sizes_pair = [len(valid_set_pair[b]) for b in range(len(_buckets))]
+    valid_total_size_pair = float(sum(valid_bucket_sizes_pair))
+    valid_buckets_scale_pair = [sum(valid_bucket_sizes_pair[:i + 1]) / valid_total_size_pair
+                               for i in range(len(valid_bucket_sizes_pair))]
+
+    num_train_steps = nmt_hparams.num_train_epoch * int(train_total_size_pair / FLAGS.batch_size)
+    if train:
+        while global_step < num_train_steps:
+            random_number_01 = np.random.random_sample()
+            bucket_id = min([i for i in range(len(train_buckets_scale_pair))
+                             if train_buckets_scale_pair[i] > random_number_01])
+            encoder_inputs, decoder_inputs, targets, target_weights, source_sequence_length, target_sequence_length = train_model.model.get_batch(
+                train_set_pair, _buckets,
+                bucket_id, nmt_hparams.batch_size)
+            feed = {train_model.model.encoder_input_ids: encoder_inputs,
+                    train_model.model.encoder_input_length: source_sequence_length,
+                    train_model.model.decoder_input_ids: decoder_inputs,
+                    train_model.model.decoder_input_length: target_sequence_length,
+                    train_model.model.targets: targets,
+                    train_model.model.target_weights: target_weights}
+            loss, _, global_step = train_sess.run([train_model.model.loss,
+                                                   train_model.model.train_op,
+                                                   train_model.model.global_step], feed_dict=feed)
+
+            # print(loss/_source_buckets[bucket_id])
+            if global_step % 50 == 0:
+                print(loss / _source_buckets[bucket_id])
+            if global_step % nmt_hparams.steps_per_eval == 0:
+                train_model.model.saver.save(train_sess, nmt_hparams.ae_ckpt_path, global_step=global_step)
+                ckpt = tf.train.get_checkpoint_state(nmt_hparams.ae_ckpt_dir)
+                if ckpt and tf.train.checkpoint_exists(ckpt.model_checkpoint_path):
+                    eval_model.model.saver.restore(eval_sess, ckpt.model_checkpoint_path)
+                else:
+                    raise ValueError("ckpt file not found.")
+                random_number_02 = np.random.random_sample()
+                bucket_id = min([i for i in range(len(valid_buckets_scale_pair))
+                                 if valid_buckets_scale_pair[i] > random_number_02])
+                encoder_inputs, decoder_inputs, targets, target_weights, source_sequence_length, target_sequence_length = train_model.model.get_batch(
+                    valid_set_pair, _buckets,
+                    bucket_id, nmt_hparams.batch_size)
+                feed = {eval_model.model.encoder_input_ids: encoder_inputs,
+                        eval_model.model.encoder_input_length: source_sequence_length,
+                        eval_model.model.decoder_input_ids: decoder_inputs,
+                        eval_model.model.decoder_input_length: target_sequence_length,
+                        eval_model.model.targets: targets,
+                        eval_model.model.target_weights: target_weights}
+                loss = eval_sess.run(eval_model.model.loss, feed_dict=feed)
+                # print(loss)
+                print("step %d with eval loss %f" % (global_step, loss / _source_buckets[bucket_id]))
+    else:
+        ckpt = tf.train.get_checkpoint_state(nmt_hparams.nmt_ckpt_dir)
+        if ckpt and tf.train.checkpoint_exists(ckpt.model_checkpoint_path):
+            infer_model.model.saver.restore(infer_sess, ckpt.model_checkpoint_path)
+            from_vocab_path = os.path.join(nmt_hparams.data_dir,
+                                           "vocab%d.from" % nmt_hparams.from_vocab_size)
+            to_vocab_path = os.path.join(nmt_hparams.data_dir,
+                                         "vocab%d.to" % nmt_hparams.to_vocab_size)
+            from_vocab, _ = data_utils.initialize_vocabulary(from_vocab_path)
+            _, rev_to_vocab = data_utils.initialize_vocabulary(to_vocab_path)
+            if interact:
+                sys.stdout.write("> ")
+                sys.stdout.flush()
+                sentence = sys.stdin.readline()
+                while sentence:
+                    token_ids = data_utils.sentence_to_token_ids(sentence, from_vocab)
+                    encoder_inputs = [token_ids + [nmt_hparams.EOS_ID]]
+                    source_sequence_length = [len(token_ids) + 1]
+                    feed = {infer_model.model.encoder_input_ids: encoder_inputs,
+                            infer_model.model.encoder_input_length: source_sequence_length}
+                    sample_outputs = infer_sess.run(infer_model.model.sample_id, feed_dict=feed)
+                    if nmt_hparams.EOS_ID in sample_outputs:
+                        sample_outputs = sample_outputs[:sample_outputs.index(data_utils.EOS_ID)]
+                    print(" ".join([tf.compat.as_str(rev_to_vocab[output]) for output in sample_outputs]))
+                    print("> ", end="")
+                    sys.stdout.flush()
+                    sentence = sys.stdin.readline()
+            else:
+                file = open(FLAGS.from_test_file, "r", encoding="utf-8")
+                outfile = open("test_out", "w", encoding="utf-8")
+                for line in file:
+                    sentence = line.rstrip("\n")
+                    token_ids = data_utils.sentence_to_token_ids(tf.compat.as_bytes(sentence), from_vocab)
+                    encoder_inputs = [token_ids + nmt_hparams.EOS_ID]
+                    source_sequence_length = [len(token_ids) + 1]
+                    feed = {infer_model.model.encoder_input_ids: encoder_inputs,
+                            infer_model.model.encoder_input_length: source_sequence_length}
+                    sample_outputs = infer_sess.run(infer_model.model.sample_id, feed_dict=feed)
+                    if nmt_hparams.EOS_ID in sample_outputs:
+                        sample_outputs = sample_outputs[:sample_outputs.index(data_utils.EOS_ID)]
+                    outfile(" ".join([tf.compat.as_str(rev_to_vocab[output]) for output in sample_outputs]) + "\n")
+                file.close()
+                outfile.close()
+        else:
+            raise ValueError("ckpt file not found.")
 
 def create_hparams(flags):
     return tf.contrib.training.HParams(
@@ -506,6 +642,7 @@ def create_hparams(flags):
         data_dir=flags.data_dir,
         train_dir=flags.train_dir,
         ae_ckpt_dir=flags.ae_ckpt_dir,
+        nmt_ckpt_dir=flags.nmt_ckpt_dir,
 
         # data params
         batch_size=flags.batch_size,
@@ -550,7 +687,8 @@ def main(_):
     hparams.add_hparam(name="to_valid", value=to_valid)
     from_vocab_path = os.path.join(hparams.data_dir, "vocab%d.from" % hparams.from_vocab_size)
     to_vocab_path = os.path.join(hparams.data_dir, "vocab%d.to" % hparams.to_vocab_size)
-    train_ae(hparams,train=True, interact=True)
+    train_ae(hparams, train=True, interact=True)
+    train_nmt(hparams, train=True, interact=True)
     #train(from_train, to_train, from_dev, to_dev)
 
 

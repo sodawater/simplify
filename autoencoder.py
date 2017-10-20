@@ -82,6 +82,7 @@ class Autoencoder():
                                                                                                        swap_memory=True)
                 self.sample_id = tf.unstack(decoder_outputs.sample_id, axis=0)
 
+
         if mode != tf.contrib.learn.ModeKeys.INFER:
             self.targets = tf.placeholder(dtype=tf.int32, shape=[None, None])
             self.target_weights = tf.placeholder(dtype=tf.float32, shape=[None, None])

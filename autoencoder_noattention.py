@@ -4,10 +4,9 @@ import random
 import data_utils
 from tensorflow.python.layers import core as layers_core
 
-class BiRNN_seq2seq():
+class Autoencoder_noattention():
     def __init__(self, hparams, mode):
-        self.from_vocab_size = hparams.from_vocab_size
-        self.to_vocab_size = hparams.to_vocab_size
+        self.vocab_size = hparams.from_vocab_size
         self.num_units = hparams.num_units
         self.emb_dim = hparams.emb_dim
         self.num_layers = hparams.num_layers
@@ -28,60 +27,32 @@ class BiRNN_seq2seq():
             self.batch_size = 1
 
         with tf.variable_scope("embedding") as scope:
-            self.from_embeddings = tf.Variable(self.init_matrix([self.from_vocab_size, self.emb_dim]))
-            self.to_embeddings = tf.Variable(self.init_matrix([self.to_vocab_size, self.emb_dim]))
+            self.embeddings = tf.Variable(self.init_matrix([self.vocab_size, self.emb_dim]))
 
         with tf.variable_scope("projection") as scope:
-            self.output_layer = layers_core.Dense(self.to_vocab_size)
+            self.output_layer = layers_core.Dense(self.vocab_size)
 
         with tf.variable_scope("encoder") as scope:
             if self.num_layers > 1:
-                encoder_cell_fw = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.BasicLSTMCell(self.num_units) for _ in range(self.num_layers)])
-                encoder_cell_bw = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.BasicLSTMCell(self.num_units) for _ in range(self.num_layers)])
+                encoder_cell = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.BasicLSTMCell(self.num_units) for _ in range(self.num_layers)])
             else:
-                encoder_cell_fw = tf.contrib.rnn.BasicLSTMCell(self.num_units)
-                encoder_cell_bw = tf.contrib.rnn.BasicLSTMCell(self.num_units)
+                encoder_cell = tf.contrib.rnn.BasicLSTMCell(self.num_units)
             with tf.device("/cpu:0"):
-                self.encoder_inputs = tf.nn.embedding_lookup(self.from_embeddings, self.encoder_input_ids)
-            encoder_outputs, encoder_state = tf.nn.bidirectional_dynamic_rnn(cell_fw=encoder_cell_fw,
-                                                                             cell_bw=encoder_cell_bw,
-                                                                             inputs=self.encoder_inputs,
-                                                                             dtype=tf.float32,
-                                                                             sequence_length=self.encoder_input_length)
-            encoder_outputs_fw, encoder_outputs_bw = encoder_outputs
-            if self.num_layers > 1:
-                states = []
-                for layer_id in range(self.num_layers):
-                    fw_c, fw_h = encoder_state[0][layer_id]
-                    bw_c, bw_h = encoder_state[1][layer_id]
-                    c = (fw_c + bw_c) / 2.0
-                    h = (fw_h + bw_h) / 2.0
-                    state = tf.contrib.rnn.LSTMStateTuple(c=c, h=h)
-                    states.append(state)
-                encoder_state = tuple(states)
-            else:
-                fw_c, fw_h = encoder_state[0]
-                bw_c, bw_h = encoder_state[1]
-                c = (fw_c + bw_c) / 2.0
-                h = (fw_h + bw_h) / 2.0
-                encoder_state = tf.contrib.rnn.LSTMStateTuple(c=c, h=h)
+                self.encoder_inputs = tf.nn.embedding_lookup(self.embeddings, self.encoder_input_ids)
+            encoder_outputs, encoder_state = tf.nn.dynamic_rnn(cell=encoder_cell,
+                                                               inputs=self.encoder_inputs,
+                                                               dtype=tf.float32,
+                                                               sequence_length=self.encoder_input_length)
 
         with tf.variable_scope("decoder") as scope:
             if self.num_layers > 1:
                 decoder_cell = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.BasicLSTMCell(self.num_units) for _ in range(self.num_layers)])
-            memory = tf.concat([encoder_outputs_fw, encoder_outputs_bw], axis=2)
-            initial_state = encoder_state
-            attention_mechanism = tf.contrib.seq2seq.LuongAttention(num_units=self.num_units,
-                                                                    memory=memory,
-                                                                    memory_sequence_length=self.encoder_input_length)
-            decoder_cell = tf.contrib.seq2seq.AttentionWrapper(decoder_cell,
-                                                               attention_mechanism,
-                                                               attention_layer_size=self.num_units)
-
+            else:
+                decoder_cell = tf.contrib.rnn.BasicLSTMCell(self.num_units)
             if mode != tf.contrib.learn.ModeKeys.INFER:
-                initial_state = decoder_cell.zero_state(self.batch_size, tf.float32).clone(cell_state=initial_state)
+                initial_state = encoder_state
                 with tf.device("/cpu:0"):
-                    decoder_inputs = tf.nn.embedding_lookup(self.to_embeddings, self.decoder_input_ids)
+                    decoder_inputs = tf.nn.embedding_lookup(self.embeddings, self.decoder_input_ids)
                 helper = tf.contrib.seq2seq.TrainingHelper(decoder_inputs, self.decoder_input_length)
                 my_decoder = tf.contrib.seq2seq.BasicDecoder(cell=decoder_cell,
                                                              helper=helper,
@@ -94,9 +65,8 @@ class BiRNN_seq2seq():
                 self.sample_id = decoder_outputs.sample_id
                 self.logits = decoder_outputs.rnn_output
             else:
-                helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(self.to_embeddings, [hparams.GO_ID], hparams.EOS_ID)
-                initial_state = decoder_cell.zero_state(self.batch_size, tf.float32).clone(cell_state=initial_state)
-                #initial_state = encoder_state
+                helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(self.embeddings, [hparams.GO_ID], hparams.EOS_ID)
+                initial_state = encoder_state
                 my_decoder = tf.contrib.seq2seq.BasicDecoder(cell=decoder_cell,
                                                              helper=helper,
                                                              initial_state=initial_state,
@@ -105,6 +75,7 @@ class BiRNN_seq2seq():
                                                                                                        maximum_iterations=self.max_seq_length * 2,
                                                                                                        swap_memory=True)
                 self.sample_id = tf.unstack(decoder_outputs.sample_id, axis=0)
+
 
         if mode != tf.contrib.learn.ModeKeys.INFER:
             self.targets = tf.placeholder(dtype=tf.int32, shape=[None, None])
@@ -136,7 +107,7 @@ class BiRNN_seq2seq():
 
 
     def get_batch(self, data, buckets, bucket_id, batch_size):
-        encoder_size, decoder_size = buckets[bucket_id]
+        encoder_size = buckets[bucket_id]
         encoder_inputs = []
         decoder_inputs = []
         targets = []
@@ -146,20 +117,20 @@ class BiRNN_seq2seq():
         # Get a random batch of encoder and decoder inputs from data,
         # pad them if needed, reverse encoder inputs and add GO to decoder.
         for _ in range(batch_size):
-            encoder_input, decoder_input = random.choice(data[bucket_id])
+            encoder_input = random.choice(data[bucket_id])
 
             # Decoder inputs get an extra "GO" symbol, and are padded then.
             encoder_pad_size = encoder_size - len(encoder_input)
-            decoder_pad_size = decoder_size - len(decoder_input)
+            pad_size = encoder_size - len(encoder_input)
             #print(len(encoder_input))
             encoder_inputs.append(encoder_input +
                                   [data_utils.PAD_ID] * encoder_pad_size)
-            targets.append(decoder_input + [data_utils.PAD_ID] * (decoder_pad_size))
-            decoder_inputs.append([data_utils.GO_ID] + decoder_input[0:len(decoder_input) - 1]
-                                  + [data_utils.PAD_ID] * (decoder_pad_size))
-            target_weights.append([1.0] * (len(decoder_input)) + [0.0] * decoder_pad_size)
+            targets.append(encoder_input + [data_utils.PAD_ID] * (pad_size))
+            decoder_inputs.append([data_utils.GO_ID] + encoder_input[0:len(encoder_input) - 1]
+                                  + [data_utils.PAD_ID] * (pad_size))
+            target_weights.append([1.0] * (len(encoder_input)) + [0.0] * pad_size)
             source_sequence_length.append(len(encoder_input))
-            target_sequence_length.append(decoder_size)
+            target_sequence_length.append(encoder_size)
         # Now we create batch-major vectors from the data selected above.
         return encoder_inputs, decoder_inputs, targets, target_weights, source_sequence_length, target_sequence_length
 

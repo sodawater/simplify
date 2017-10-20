@@ -22,7 +22,7 @@ from birnn_seq2seq import BiRNN_seq2seq
 import argparse
 import copy
 import collections
-
+from autoencoder_noattention import Autoencoder_noattention
 
 tf.app.flags.DEFINE_integer("total_batch", 5000, "Number of batches.")
 tf.app.flags.DEFINE_integer("ae_epoch_num", 100, "train epoch num for ae")
@@ -37,13 +37,13 @@ def add_arguments(parser):
     parser.register("type", "bool", lambda v: v.lower() == "true")
     parser.add_argument("--data_dir", type=str, default="/data/wtm/data/wikilarge/", help="Data directory")
     parser.add_argument("--train_dir", type=str, default="/data/wtm/data/wikilarge/model/GAN/", help="Training directory")
-    parser.add_argument("--from_train_data", type=str, default="/data/wtm/data/wikilarge/wiki.full.aner.ori.train.src",
+    parser.add_argument("--from_train_data", type=str, default="/data/wtm/data/wikilarge/wiki.full.aner.train.src",
                         help="Training data_src path")
-    parser.add_argument("--to_train_data", type=str, default="/data/wtm/data/wikilarge/wiki.full.aner.ori.train.dst",
+    parser.add_argument("--to_train_data", type=str, default="/data/wtm/data/wikilarge/wiki.full.aner.train.dst",
                         help="Training data_dst path")
-    parser.add_argument("--from_valid_data", type=str, default="/data/wtm/data/wikilarge/wiki.full.aner.ori.valid.src",
+    parser.add_argument("--from_valid_data", type=str, default="/data/wtm/data/wikilarge/wiki.full.aner.valid.src",
                         help="Valid data_src path")
-    parser.add_argument("--to_valid_data", type=str, default="/data/wtm/data/wikilarge/wiki.full.aner.ori.valid.dst",
+    parser.add_argument("--to_valid_data", type=str, default="/data/wtm/data/wikilarge/wiki.full.aner.valid.dst",
                         help="Valid data_dst path")
     parser.add_argument("--from_test_data", type=str, default="/data/wtm/data/wikilarge/wiki.full.aner.test.src",
                         help="Test data_src path")
@@ -235,7 +235,10 @@ def create_model_autoencoder(hparams):
         graph=infer_graph, model=infer_model)
 
 def create_model(hparams, model):
-    print("Creating birnn_seq2seq_model...")
+    if model == BiRNN_seq2seq:
+        print("Creating birnn_seq2seq_model...")
+    elif model == Autoencoder:
+        print("Creating ae model...")
     train_graph = tf.Graph()
     with train_graph.as_default():
         train_model = model(hparams, tf.contrib.learn.ModeKeys.TRAIN)
@@ -396,7 +399,7 @@ def train(from_train, to_train, from_dev, to_dev):
 def train_ae(hparams, train=True, interact=False):
     ae_hparams = copy.deepcopy(hparams)
     ae_hparams.add_hparam(name="ae_ckpt_path", value=os.path.join(hparams.ae_ckpt_dir, "ae.ckpt"))
-    train_model, eval_model, infer_model = create_model(ae_hparams, Autoencoder)
+    train_model, eval_model, infer_model = create_model(ae_hparams, Autoencoder_noattention)
     config =tf.ConfigProto()
     config.gpu_options.allow_growth = True
     train_sess = tf.Session(config=config, graph=train_model.graph)
@@ -477,7 +480,7 @@ def train_ae(hparams, train=True, interact=False):
                                            "vocab%d.from" % ae_hparams.from_vocab_size)
             to_vocab_path = os.path.join(ae_hparams.data_dir,
                                          "vocab%d.to" % ae_hparams.to_vocab_size)
-            from_vocab, _ = data_utils.initialize_vocabulary(from_vocab_path)
+            from_vocab, rev_from_vocab = data_utils.initialize_vocabulary(from_vocab_path)
             _, rev_to_vocab = data_utils.initialize_vocabulary(to_vocab_path)
             if interact:
                 sys.stdout.write("> ")
@@ -490,9 +493,11 @@ def train_ae(hparams, train=True, interact=False):
                     feed = {infer_model.model.encoder_input_ids:encoder_inputs,
                             infer_model.model.encoder_input_length:source_sequence_length}
                     sample_outputs = infer_sess.run(infer_model.model.sample_id, feed_dict=feed)
+                    sample_outputs = sample_outputs[0].tolist()
+                    print(sample_outputs)
                     if ae_hparams.EOS_ID in sample_outputs:
                         sample_outputs = sample_outputs[:sample_outputs.index(data_utils.EOS_ID)]
-                    print(" ".join([tf.compat.as_str(rev_to_vocab[output]) for output in sample_outputs]))
+                    print(" ".join([tf.compat.as_str(rev_from_vocab[output]) for output in sample_outputs]))
                     print("> ", end="")
                     sys.stdout.flush()
                     sentence = sys.stdin.readline()
@@ -507,9 +512,10 @@ def train_ae(hparams, train=True, interact=False):
                     feed = {infer_model.model.encoder_input_ids: encoder_inputs,
                             infer_model.model.encoder_input_length: source_sequence_length}
                     sample_outputs = infer_sess.run(infer_model.model.sample_id, feed_dict=feed)
+                    sample_outputs = sample_outputs[0].tolist()
                     if ae_hparams.EOS_ID in sample_outputs:
                         sample_outputs = sample_outputs[:sample_outputs.index(data_utils.EOS_ID)]
-                    outfile(" ".join([tf.compat.as_str(rev_to_vocab[output]) for output in sample_outputs]) + "\n")
+                    outfile(" ".join([tf.compat.as_str(rev_from_vocab[output]) for output in sample_outputs]) + "\n")
                 file.close()
                 outfile.close()
         else:
@@ -517,6 +523,7 @@ def train_ae(hparams, train=True, interact=False):
 
 def train_nmt(hparams, train=True, interact=False):
     nmt_hparams = copy.deepcopy(hparams)
+    nmt_hparams.add_hparam(name="nmt_ckpt_path", value=os.path.join(hparams.nmt_ckpt_dir, "nmt.ckpt"))
     train_model, eval_model, infer_model = create_model(nmt_hparams, BiRNN_seq2seq)
     config = tf.ConfigProto()
     config.gpu_options.allow_growth = True
@@ -534,13 +541,13 @@ def train_nmt(hparams, train=True, interact=False):
         else:
             train_sess.run(tf.global_variables_initializer())
 
-    train_set_pair = read_data_pair(nmt_hparams.from_train, nmt_hparams.max_train_data_size)
+    train_set_pair = read_data_pair(nmt_hparams.from_train, nmt_hparams.to_train, nmt_hparams.max_train_data_size)
     train_bucket_sizes_pair = [len(train_set_pair[b]) for b in range(len(_buckets))]
     train_total_size_pair = float(sum(train_bucket_sizes_pair))
     train_buckets_scale_pair = [sum(train_bucket_sizes_pair[:i + 1]) / train_total_size_pair
                                for i in range(len(train_bucket_sizes_pair))]
 
-    valid_set_pair = read_data_pair(nmt_hparams.from_valid, nmt_hparams.max_train_data_size)
+    valid_set_pair = read_data_pair(nmt_hparams.from_valid, nmt_hparams.to_valid, nmt_hparams.max_train_data_size)
     valid_bucket_sizes_pair = [len(valid_set_pair[b]) for b in range(len(_buckets))]
     valid_total_size_pair = float(sum(valid_bucket_sizes_pair))
     valid_buckets_scale_pair = [sum(valid_bucket_sizes_pair[:i + 1]) / valid_total_size_pair
@@ -568,9 +575,12 @@ def train_nmt(hparams, train=True, interact=False):
             # print(loss/_source_buckets[bucket_id])
             if global_step % 50 == 0:
                 print(loss / _source_buckets[bucket_id])
+            if global_step % 1000 == 0:
+                learning_rate = train_sess.run(train_model.model.learning_rate_decay_op)
+                print("learning rate is %f now" % learning_rate)
             if global_step % nmt_hparams.steps_per_eval == 0:
-                train_model.model.saver.save(train_sess, nmt_hparams.ae_ckpt_path, global_step=global_step)
-                ckpt = tf.train.get_checkpoint_state(nmt_hparams.ae_ckpt_dir)
+                train_model.model.saver.save(train_sess, nmt_hparams.nmt_ckpt_path, global_step=global_step)
+                ckpt = tf.train.get_checkpoint_state(nmt_hparams.nmt_ckpt_dir)
                 if ckpt and tf.train.checkpoint_exists(ckpt.model_checkpoint_path):
                     eval_model.model.saver.restore(eval_sess, ckpt.model_checkpoint_path)
                 else:
@@ -611,6 +621,7 @@ def train_nmt(hparams, train=True, interact=False):
                     feed = {infer_model.model.encoder_input_ids: encoder_inputs,
                             infer_model.model.encoder_input_length: source_sequence_length}
                     sample_outputs = infer_sess.run(infer_model.model.sample_id, feed_dict=feed)
+                    sample_outputs = sample_outputs[0].tolist()
                     if nmt_hparams.EOS_ID in sample_outputs:
                         sample_outputs = sample_outputs[:sample_outputs.index(data_utils.EOS_ID)]
                     print(" ".join([tf.compat.as_str(rev_to_vocab[output]) for output in sample_outputs]))
@@ -628,6 +639,7 @@ def train_nmt(hparams, train=True, interact=False):
                     feed = {infer_model.model.encoder_input_ids: encoder_inputs,
                             infer_model.model.encoder_input_length: source_sequence_length}
                     sample_outputs = infer_sess.run(infer_model.model.sample_id, feed_dict=feed)
+                    sample_outputs = sample_outputs[0].tolist()
                     if nmt_hparams.EOS_ID in sample_outputs:
                         sample_outputs = sample_outputs[:sample_outputs.index(data_utils.EOS_ID)]
                     outfile(" ".join([tf.compat.as_str(rev_to_vocab[output]) for output in sample_outputs]) + "\n")
@@ -688,7 +700,7 @@ def main(_):
     from_vocab_path = os.path.join(hparams.data_dir, "vocab%d.from" % hparams.from_vocab_size)
     to_vocab_path = os.path.join(hparams.data_dir, "vocab%d.to" % hparams.to_vocab_size)
     train_ae(hparams, train=True, interact=True)
-    train_nmt(hparams, train=True, interact=True)
+    #train_nmt(hparams, train=True, interact=True)
     #train(from_train, to_train, from_dev, to_dev)
 
 

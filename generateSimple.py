@@ -53,6 +53,8 @@ def add_arguments(parser):
                         help="ae model checkpoint directory")
     parser.add_argument("--nmt_ckpt_dir", type=str, default="/data/wtm/data/wikilarge/model/nmt/",
                         help="nmt model checkpoint directory")
+    parser.add_argument("--gan_ckpt_dir", type=str, default="/data/wtm/data/wikilarge/model/gan/",
+                        help="gan model checkpoint directory")
 
     parser.add_argument("--max_train_data_size", type=int, default=0, help="Limit on the size of training data (0: no limit)")
     parser.add_argument("--attention", type=str, default="", help="""\
@@ -648,6 +650,78 @@ def train_nmt(hparams, train=True, interact=False):
         else:
             raise ValueError("ckpt file not found.")
 
+def train_gan(hparams, train=True, interact=False):
+    gan_hparams = copy.deepcopy(hparams)
+    gan_hparams.add_hparam(name="gan_g_ckpt_dir", value=os.path.join(gan_hparams.gan_ckpt_dir,"generator/"))
+    gan_hparams.add_hparam(name="gan_g_ckpt_path", value=os.path.join(gan_hparams.gan_g_ckpt_dir, "gan_g.ckpt"))
+    gan_hparams.add_hparam(name="gan_d_ckpt_dir", value=os.path.join(gan_hparams.gan_ckpt_dir,"discriminator/"))
+    gan_hparams.add_hparam(name="gan_d_ckpt_path", value=os.path.join(gan_hparams.gan_d_ckpt_dir,"gan_d.ckpt"))
+    gan_hparams.add_hparam(name="ae_ckpt_path", value=os.path.join(gan_hparams.ae_ckpt_path,"ae.ckpt"))
+
+    ae_train_model, ae_eval_model, ae_infer_model = create_model(gan_hparams, Autoencoder_noattention)
+    g_train_model, g_eval_model, g_infer_model = create_model(gan_hparams, Generator)
+    d_train_model, d_eval_model, d_infer_model = create_model(gan_hparams, Discriminator)
+
+    config = tf.ConfigProto()
+    config.gpu_options.allow_growth = True
+    ae_sess = tf.Session(config=config, graph=ae_infer_model.graph)
+
+    ckpt = tf.train.get_checkpoint_state(gan_hparams.ae_ckpt_dir)
+    if ckpt and tf.train.checkpoint_exists(ckpt.model_checkpoint_path):
+        ae_infer_model.model.saver.restore(ae_sess, ckpt.model_checkpoint_path)
+    else:
+        raise ValueError("ae model couldn't found.")
+
+    g_train_sess = tf.Session(config=config, graph=g_train_model.graph)
+    g_eval_sess = tf.Session(config=config, graph=g_eval_model.graph)
+    g_infer_sess = tf.Session(config=config, graph=g_infer_model.graph)
+
+    d_train_sess = tf.Session(config=config, graph=d_train_model.graph)
+    d_eval_model = tf.Session(config=config, graph=d_eval_model.graph)
+    d_infer_model = tf.Session(config=config, graph=d_infer_model.graph)
+
+    train_set_pair = read_data_pair(gan_hparams.from_train, gan_hparams.to_train, gan_hparams.max_train_data_size)
+    train_bucket_sizes_pair = [len(train_set_pair[b]) for b in range(len(_buckets))]
+    train_total_size_pair = float(sum(train_bucket_sizes_pair))
+    train_buckets_scale_pair = [sum(train_bucket_sizes_pair[:i + 1]) / train_total_size_pair
+                               for i in range(len(train_bucket_sizes_pair))]
+
+    valid_set_pair = read_data_pair(gan_hparams.from_valid, gan_hparams.to_valid, gan_hparams.max_train_data_size)
+    valid_bucket_sizes_pair = [len(valid_set_pair[b]) for b in range(len(_buckets))]
+    valid_total_size_pair = float(sum(valid_bucket_sizes_pair))
+    valid_buckets_scale_pair = [sum(valid_bucket_sizes_pair[:i + 1]) / valid_total_size_pair
+                               for i in range(len(valid_bucket_sizes_pair))]
+
+    ckpt = tf.train.get_checkpoint_state(gan_hparams.gan_g_ckpt_dir)
+    if ckpt and tf.train.checkpoint_exists(ckpt.model_checkpoint_path):
+        print("Reading model parameters from %s" % ckpt.model_checkpoint_path)
+        g_train_model.model.saver.restore(g_train_sess, ckpt.model_checkpoint_path)
+    else:
+        print("Initializing generator and pretraining...")
+        d_train_sess.run(tf.global_variables_initializer())
+        global_step = 0
+        num_pretrain_steps = gan_hparams.num_pretrain_epoch * int(train_total_size_pair / FLAGS.batch_size)
+        while global_step < num_pretrain_steps:
+            random_number_01 = np.random.random_sample()
+            bucket_id = min([i for i in range(len(train_buckets_scale_pair))
+                             if train_buckets_scale_pair[i] > random_number_01])
+            encoder_inputs, decoder_inputs, targets, target_weights, source_sequence_length, target_sequence_length = g_train_model.model.get_batch(
+                train_set_pair, _buckets,
+                bucket_id, gan_hparams.batch_size)
+            feed_ae = {ae_infer_model.model.encoder_input_ids:encoder_inputs,
+                       ae_infer_model.model.encoder_input_length:source_sequence_length}
+            sen_embedding = ae_sess.run(ae_infer_model.model.sen_embedding, feed_dict=feed_ae)
+
+            feed_g = {g_train_model.model.initial_state:sen_embedding,
+                      g_train_model.model.targets:targets,
+                      g_train_model.model.target_weights:target_weights,
+                      g_train_model.model.decoder_input_ids:decoder_inputs,
+                      g_train_model.model.decoder_input_length:target_sequence_length}
+            loss, _, global_step = g_train_sess.run([g_train_model.model.pretrain_loss,
+                                                     g_train_model.model.pretrain_op,
+                                                     g_train_model.model.pretrain_global_step],
+                                                    feed_dict=feed_g)
+
 def create_hparams(flags):
     return tf.contrib.training.HParams(
         # dir path
@@ -655,6 +729,7 @@ def create_hparams(flags):
         train_dir=flags.train_dir,
         ae_ckpt_dir=flags.ae_ckpt_dir,
         nmt_ckpt_dir=flags.nmt_ckpt_dir,
+        gan_ckpt_dir=flags.gan_ckpt_dir,
 
         # data params
         batch_size=flags.batch_size,

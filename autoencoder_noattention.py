@@ -43,6 +43,7 @@ class Autoencoder_noattention():
                                                                inputs=self.encoder_inputs,
                                                                dtype=tf.float32,
                                                                sequence_length=self.encoder_input_length)
+            self.sen_embedding = encoder_state
 
         with tf.variable_scope("decoder") as scope:
             if self.num_layers > 1:

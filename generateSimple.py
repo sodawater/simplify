@@ -62,7 +62,7 @@ def add_arguments(parser):
           attention\
           """)
     parser.add_argument("--from_vocab_size", type=int, default=50000, help="NormalWiki vocabulary size")
-    parser.add_argument("--to_vocab_size", type=int, default=30000, help="SimpleWiki vocabulary size")
+    parser.add_argument("--to_vocab_size", type=int, default=50000, help="SimpleWiki vocabulary size")
     parser.add_argument("--num_layers", type=int, default=2, help="Number of layers in the model")
     parser.add_argument("--num_units", type=int, default=256, help="Size of each model layer")
     parser.add_argument("--emb_dim", type=int, default=256, help="Dimension of word embedding")
@@ -635,8 +635,8 @@ def train_nmt(hparams, train=True, interact=False):
                 outfile = open("test_out", "w", encoding="utf-8")
                 for line in file:
                     sentence = line.rstrip("\n")
-                    token_ids = data_utils.sentence_to_token_ids(tf.compat.as_bytes(sentence), from_vocab)
-                    encoder_inputs = [token_ids + nmt_hparams.EOS_ID]
+                    token_ids = data_utils.sentence_to_token_ids(sentence, from_vocab)
+                    encoder_inputs = [token_ids + [nmt_hparams.EOS_ID]]
                     source_sequence_length = [len(token_ids) + 1]
                     feed = {infer_model.model.encoder_input_ids: encoder_inputs,
                             infer_model.model.encoder_input_length: source_sequence_length}
@@ -764,9 +764,11 @@ def main(_):
         from_train_data,
         to_train_data,
         from_valid_data,
-        to_valid_data,
+        to_valid_data,  
         FLAGS.from_vocab_size,
-        FLAGS.to_vocab_size)
+        FLAGS.to_vocab_size,
+        same_vocab=True
+    )
     hparams = create_hparams(FLAGS)
     hparams.add_hparam(name="from_train", value=from_train)
     hparams.add_hparam(name="to_train", value=to_train)
@@ -774,8 +776,8 @@ def main(_):
     hparams.add_hparam(name="to_valid", value=to_valid)
     from_vocab_path = os.path.join(hparams.data_dir, "vocab%d.from" % hparams.from_vocab_size)
     to_vocab_path = os.path.join(hparams.data_dir, "vocab%d.to" % hparams.to_vocab_size)
-    train_ae(hparams, train=True, interact=True)
-    #train_nmt(hparams, train=True, interact=True)
+    #train_ae(hparams, train=True, interact=True)
+    train_nmt(hparams, train=True, interact=True)
     #train(from_train, to_train, from_dev, to_dev)
 
 

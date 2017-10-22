@@ -29,8 +29,8 @@ class BiRNN_seq2seq():
 
         with tf.variable_scope("embedding") as scope:
             self.from_embeddings = tf.Variable(self.init_matrix([self.from_vocab_size, self.emb_dim]))
-            self.to_embeddings = tf.Variable(self.init_matrix([self.to_vocab_size, self.emb_dim]))
-
+            #self.to_embeddings = tf.Variable(self.init_matrix([self.to_vocab_size, self.emb_dim]))
+            self.to_embeddings = self.from_embeddings
         with tf.variable_scope("projection") as scope:
             self.output_layer = layers_core.Dense(self.to_vocab_size)
 

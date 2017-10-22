@@ -50,7 +50,7 @@ def create_vocabulary(vocabulary_path, data_path, max_vocabulary_size,
           print("  processing line %d" % counter)
         tokens = tokenizer(line) if tokenizer else basic_tokenizer(line)
         for w in tokens:
-          word = _DIGIT_RE.sub(r"0", w) if normalize_digits else w
+          word = _DIGIT_RE.sub(r"0", w) if normalize_digits else w.lower()
           if word in vocab:
             vocab[word] += 1
           else:
@@ -76,7 +76,7 @@ def create_vocabulary_samevocab(from_vocab_path, to_vocab_path, from_data_path, 
           print("  processing line %d" % counter)
         tokens = tokenizer(line) if tokenizer else basic_tokenizer(line)
         for w in tokens:
-          word = _DIGIT_RE.sub(r"0", w) if normalize_digits else w
+          word = _DIGIT_RE.sub(r"0", w) if normalize_digits else w.lower()
           if word in vocab:
             vocab[word] += 1
           else:
@@ -89,7 +89,7 @@ def create_vocabulary_samevocab(from_vocab_path, to_vocab_path, from_data_path, 
                   print("  processing line %d" % counter)
               tokens = tokenizer(line) if tokenizer else basic_tokenizer(line)
               for w in tokens:
-                  word = _DIGIT_RE.sub(r"0", w) if normalize_digits else w
+                  word = _DIGIT_RE.sub(r"0", w) if normalize_digits else w.lower()
                   if word in vocab:
                       vocab[word] += 1
                   else:
@@ -126,8 +126,8 @@ def sentence_to_token_ids(sentence, vocabulary,
   else:
     words = basic_tokenizer(sentence)
   if not normalize_digits:
-    return [vocabulary.get(w, UNK_ID) for w in words]
-  return [vocabulary.get(_DIGIT_RE.sub("0", w), UNK_ID) for w in words]
+    return [vocabulary.get(w.lower(), UNK_ID) for w in words]
+  return [vocabulary.get(_DIGIT_RE.sub("0", w.lower()), UNK_ID) for w in words]
 
 
 def data_to_token_ids(data_path, target_path, vocabulary_path,

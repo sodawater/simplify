@@ -29,8 +29,8 @@ class BiRNN_seq2seq():
 
         with tf.variable_scope("embedding") as scope:
             self.from_embeddings = tf.Variable(self.init_matrix([self.from_vocab_size, self.emb_dim]))
-            #self.to_embeddings = tf.Variable(self.init_matrix([self.to_vocab_size, self.emb_dim]))
-            self.to_embeddings = self.from_embeddings
+            self.to_embeddings = tf.Variable(self.init_matrix([self.to_vocab_size, self.emb_dim]))
+            #self.to_embeddings = self.from_embeddings
         with tf.variable_scope("projection") as scope:
             self.output_layer = layers_core.Dense(self.to_vocab_size)
 
@@ -55,6 +55,8 @@ class BiRNN_seq2seq():
                     fw_c, fw_h = encoder_state[0][layer_id]
                     bw_c, bw_h = encoder_state[1][layer_id]
                     c = (fw_c + bw_c) / 2.0
+                    #c = bw_c
+                    #h = bw_h
                     h = (fw_h + bw_h) / 2.0
                     state = tf.contrib.rnn.LSTMStateTuple(c=c, h=h)
                     states.append(state)
@@ -73,9 +75,11 @@ class BiRNN_seq2seq():
             initial_state = encoder_state
             attention_mechanism = tf.contrib.seq2seq.LuongAttention(num_units=self.num_units,
                                                                     memory=memory,
+                                                                    scale=True,
                                                                     memory_sequence_length=self.encoder_input_length)
             decoder_cell = tf.contrib.seq2seq.AttentionWrapper(decoder_cell,
                                                                attention_mechanism,
+                                                               alignment_history=True,
                                                                attention_layer_size=self.num_units)
 
             if mode != tf.contrib.learn.ModeKeys.INFER:
@@ -91,6 +95,7 @@ class BiRNN_seq2seq():
                 decoder_outputs, decoder_state, decoder_output_len = tf.contrib.seq2seq.dynamic_decode(my_decoder,
                                                                                                        maximum_iterations=self.max_seq_length * 2,
                                                                                                        swap_memory=True,)
+
                 self.sample_id = decoder_outputs.sample_id
                 self.logits = decoder_outputs.rnn_output
             else:
@@ -104,6 +109,10 @@ class BiRNN_seq2seq():
                 decoder_outputs, decoder_state, decoder_output_len = tf.contrib.seq2seq.dynamic_decode(my_decoder,
                                                                                                        maximum_iterations=self.max_seq_length * 2,
                                                                                                        swap_memory=True)
+                alignment_history = (decoder_state.alignment_history.stack())
+                print(alignment_history)
+                self.alignment_history = tf.unstack(tf.argmax(alignment_history, axis=2), axis=1)
+                print(self.alignment_history)
                 self.sample_id = tf.unstack(decoder_outputs.sample_id, axis=0)
 
         if mode != tf.contrib.learn.ModeKeys.INFER:

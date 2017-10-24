@@ -47,31 +47,34 @@ class Discriminator_RNN():
                                                                              sequence_length=self.encoder_input_length)
             encoder_outputs_fw, encoder_outputs_bw = encoder_outputs
             if self.num_layers > 1:
-                states = []
-                for layer_id in range(self.num_layers):
-                    fw_c, fw_h = encoder_state[0][layer_id]
-                    bw_c, bw_h = encoder_state[1][layer_id]
-                    c = (fw_c + bw_c) / 2.0
-                    h = (fw_h + bw_h) / 2.0
-                    state = tf.contrib.rnn.LSTMStateTuple(c=c, h=h)
-                    states.append(state)
-                encoder_state = tuple(states)
+                fw_c, fw_h = encoder_state[0][self.num_layers - 1]
+                bw_c, bw_h = encoder_state[1][self.num_layers - 1]
+                c = (fw_c + bw_c) / 2.0
+                h = (fw_h + bw_h) / 2.0
+                encoder_state = tf.contrib.rnn.LSTMStateTuple(c=c, h=h)
+                encoder_state = bw_h
             else:
                 fw_c, fw_h = encoder_state[0]
                 bw_c, bw_h = encoder_state[1]
                 c = (fw_c + bw_c) / 2.0
                 h = (fw_h + bw_h) / 2.0
                 encoder_state = tf.contrib.rnn.LSTMStateTuple(c=c, h=h)
+                encoder_state = bw_h
 
         with tf.variable_scope("decoder") as scope:
             self.logits = self.output_layer(encoder_state)
 
         if mode != tf.contrib.learn.ModeKeys.INFER:
-            self.targets = tf.placeholder(dtype=tf.int32, shape=[None, None])
+            self.targets = tf.placeholder(dtype=tf.int32, shape=[None, 2])
+            self.ypred_for_auc = tf.nn.softmax(self.logits)
+            self.answers = tf.arg_max(self.targets, 1)
             #self.target_weights = tf.placeholder(dtype=tf.float32, shape=[None, None])
             with tf.variable_scope("loss") as scope:
-                crossent = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.targets, logits=self.logits)
+                crossent = tf.nn.softmax_cross_entropy_with_logits(labels=self.targets, logits=self.logits)
                 self.loss = tf.reduce_sum(crossent) / tf.to_float(self.batch_size)
+                self.predictions = tf.argmax(self.logits, 1)
+                self.absolute_diff = tf.losses.absolute_difference(labels=self.answers,
+                                                                   predictions=self.predictions)
 
             if mode == tf.contrib.learn.ModeKeys.TRAIN:
                 self.global_step = tf.Variable(0, trainable=False)
@@ -90,28 +93,22 @@ class Discriminator_RNN():
 
 
     def get_batch(self, data, buckets, bucket_id, batch_size):
-        encoder_size, _ = buckets[bucket_id]
+        encoder_size = buckets[bucket_id]
         encoder_inputs = []
         targets = []
         source_sequence_length = []
         # Get a random batch of encoder and decoder inputs from data,
         # pad them if needed, reverse encoder inputs and add GO to decoder.
         for _ in range(batch_size):
-            neg_input, pos_input = random.choice(data[bucket_id])
+            input, label = random.choice(data[bucket_id])
 
             # Decoder inputs get an extra "GO" symbol, and are padded then.
-            neg_pad_size = encoder_size - len(neg_input)
-            pos_pad_size = encoder_size - len(pos_input)
-            #print(len(encoder_input))
-            encoder_inputs.append(neg_input + [data_utils.PAD_ID] * neg_pad_size)
-            targets.append([0, 1])
-            source_sequence_length.append(len(neg_input))
+            pad_size = encoder_size - len(input)
+            encoder_inputs.append(input + [data_utils.PAD_ID] * pad_size)
+            targets.append(label)
+            source_sequence_length.append(len(input))
 
-            encoder_inputs.append(pos_input + [data_utils.PAD_ID] * pos_pad_size)
-            targets.append([1, 0])
-            source_sequence_length.append(len(pos_input))
-        # Now we create batch-major vectors from the data selected above.
-        return encoder_inputs,  targets, source_sequence_length
+        return encoder_inputs, targets, source_sequence_length
 
     #def decode(self, sess, encoder_inputs):
 

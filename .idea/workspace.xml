@@ -2,11 +2,9 @@
 <project version="4">
   <component name="ChangeListManager">
     <list default="true" id="ea768dab-c749-43fe-b3b1-1e4e0db175ec" name="Default" comment="">
-      <change type="MODIFICATION" beforePath="$PROJECT_DIR$/.idea/misc.xml" afterPath="$PROJECT_DIR$/.idea/misc.xml" />
-      <change type="MODIFICATION" beforePath="$PROJECT_DIR$/.idea/simplify.iml" afterPath="$PROJECT_DIR$/.idea/simplify.iml" />
       <change type="MODIFICATION" beforePath="$PROJECT_DIR$/.idea/workspace.xml" afterPath="$PROJECT_DIR$/.idea/workspace.xml" />
       <change type="MODIFICATION" beforePath="$PROJECT_DIR$/birnn_seq2seq.py" afterPath="$PROJECT_DIR$/birnn_seq2seq.py" />
-      <change type="MODIFICATION" beforePath="$PROJECT_DIR$/data_utils.py" afterPath="$PROJECT_DIR$/data_utils.py" />
+      <change type="MODIFICATION" beforePath="$PROJECT_DIR$/discriminator_RNN.py" afterPath="$PROJECT_DIR$/discriminator_RNN.py" />
       <change type="MODIFICATION" beforePath="$PROJECT_DIR$/generateSimple.py" afterPath="$PROJECT_DIR$/generateSimple.py" />
     </list>
     <option name="EXCLUDED_CONVERTED_TO_IGNORED" value="true" />
@@ -25,7 +23,7 @@
       <file leaf-file-name="data_utils.py" pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/data_utils.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="65">
+            <state relative-caret-position="2574">
               <caret line="129" column="52" lean-forward="false" selection-start-line="129" selection-start-column="52" selection-end-line="129" selection-end-column="52" />
               <folding />
             </state>
@@ -35,10 +33,24 @@
       <file leaf-file-name="generateSimple.py" pinned="false" current-in-tab="true">
         <entry file="file://$PROJECT_DIR$/generateSimple.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="15643">
-              <caret line="766" column="24" lean-forward="false" selection-start-line="766" selection-start-column="24" selection-end-line="766" selection-end-column="24" />
+            <state relative-caret-position="176">
+              <caret line="33" column="12" lean-forward="true" selection-start-line="33" selection-start-column="12" selection-end-line="33" selection-end-column="12" />
               <folding>
-                <element signature="e#0#38#0" expanded="true" />
+                <element signature="e#23244#31299#0" expanded="false" />
+                <element signature="e#41278#45911#0" expanded="false" />
+                <element signature="e#45969#52492#0" expanded="false" />
+              </folding>
+            </state>
+          </provider>
+        </entry>
+      </file>
+      <file leaf-file-name="discriminator_RNN.py" pinned="false" current-in-tab="false">
+        <entry file="file://$PROJECT_DIR$/discriminator_RNN.py">
+          <provider selected="true" editor-type-id="text-editor">
+            <state relative-caret-position="225">
+              <caret line="105" column="0" lean-forward="false" selection-start-line="105" selection-start-column="0" selection-end-line="105" selection-end-column="0" />
+              <folding>
+                <element signature="e#0#23#0" expanded="true" />
               </folding>
             </state>
           </provider>
@@ -47,8 +59,8 @@
       <file leaf-file-name="birnn_seq2seq.py" pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/birnn_seq2seq.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="87">
-              <caret line="24" column="13" lean-forward="true" selection-start-line="24" selection-start-column="13" selection-end-line="24" selection-end-column="13" />
+            <state relative-caret-position="257">
+              <caret line="77" column="78" lean-forward="false" selection-start-line="77" selection-start-column="78" selection-end-line="77" selection-end-column="78" />
               <folding />
             </state>
           </provider>
@@ -69,67 +81,7 @@
           <provider selected="true" editor-type-id="text-editor">
             <state relative-caret-position="44">
               <caret line="6" column="29" lean-forward="false" selection-start-line="6" selection-start-column="29" selection-end-line="6" selection-end-column="29" />
-              <folding>
-                <marker date="1508649581717" expanded="true" signature="204:6548" ph="..." />
-                <marker date="1508649581717" expanded="true" signature="1653:2422" ph="..." />
-                <marker date="1508649581717" expanded="true" signature="2522:5020" ph="..." />
-                <marker date="1508649581717" expanded="true" signature="2847:4039" ph="..." />
-                <marker date="1508649581717" expanded="true" signature="4057:5020" ph="..." />
-                <marker date="1508649581717" expanded="true" signature="5074:6488" ph="..." />
-                <marker date="1508649581717" expanded="true" signature="5292:5512" ph="..." />
-                <marker date="1508649581717" expanded="true" signature="5569:6488" ph="..." />
-                <marker date="1508649581717" expanded="true" signature="5697:6112" ph="..." />
-                <marker date="1508649581717" expanded="true" signature="6129:6488" ph="&quot;&quot;&quot;...&quot;&quot;&quot;" />
-                <marker date="1508649581717" expanded="true" signature="6583:6634" ph="..." />
-                <marker date="1508649581717" expanded="true" signature="6927:7064" ph="..." />
-                <marker date="1508649581717" expanded="true" signature="7100:7964" ph="..." />
-              </folding>
-            </state>
-          </provider>
-        </entry>
-      </file>
-      <file leaf-file-name="test.py" pinned="false" current-in-tab="false">
-        <entry file="file://$PROJECT_DIR$/test.py">
-          <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="264">
-              <caret line="13" column="17" lean-forward="false" selection-start-line="13" selection-start-column="17" selection-end-line="13" selection-end-column="17" />
-              <folding>
-                <element signature="e#0#23#0" expanded="true" />
-              </folding>
-            </state>
-          </provider>
-        </entry>
-      </file>
-      <file leaf-file-name="seq2seq_model.py" pinned="false" current-in-tab="false">
-        <entry file="file://$PROJECT_DIR$/seq2seq_model.py">
-          <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="1408">
-              <caret line="74" column="31" lean-forward="false" selection-start-line="74" selection-start-column="9" selection-end-line="74" selection-end-column="31" />
               <folding />
-            </state>
-          </provider>
-        </entry>
-      </file>
-      <file leaf-file-name="discriminator.py" pinned="false" current-in-tab="false">
-        <entry file="file://$PROJECT_DIR$/discriminator.py">
-          <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="1782">
-              <caret line="84" column="35" lean-forward="false" selection-start-line="84" selection-start-column="35" selection-end-line="84" selection-end-column="35" />
-              <folding>
-                <element signature="e#0#23#0" expanded="true" />
-              </folding>
-            </state>
-          </provider>
-        </entry>
-      </file>
-      <file leaf-file-name="generator.py" pinned="false" current-in-tab="false">
-        <entry file="file://$PROJECT_DIR$/generator.py">
-          <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="3652">
-              <caret line="171" column="39" lean-forward="false" selection-start-line="171" selection-start-column="39" selection-end-line="171" selection-end-column="39" />
-              <folding>
-                <element signature="e#0#23#0" expanded="true" />
-              </folding>
             </state>
           </provider>
         </entry>
@@ -137,7 +89,7 @@
       <file leaf-file-name="simplify.py" pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/simplify.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="2442">
+            <state relative-caret-position="2794">
               <caret line="127" column="53" lean-forward="false" selection-start-line="124" selection-start-column="4" selection-end-line="127" selection-end-column="53" />
               <folding>
                 <element signature="e#0#38#0" expanded="true" />
@@ -170,6 +122,8 @@
       <find>learning_rate_decay_op</find>
       <find>steps_per_checkpoint</find>
       <find>seq_length</find>
+      <find>print</find>
+      <find>batch</find>
     </findStrings>
     <replaceStrings>
       <replace>range</replace>
@@ -193,9 +147,10 @@
         <option value="$PROJECT_DIR$/test.py" />
         <option value="$PROJECT_DIR$/autoencoder.py" />
         <option value="$PROJECT_DIR$/autoencoder_noattention.py" />
-        <option value="$PROJECT_DIR$/generateSimple.py" />
         <option value="$PROJECT_DIR$/data_utils.py" />
+        <option value="$PROJECT_DIR$/discriminator_RNN.py" />
         <option value="$PROJECT_DIR$/birnn_seq2seq.py" />
+        <option value="$PROJECT_DIR$/generateSimple.py" />
       </list>
     </option>
   </component>
@@ -462,12 +417,11 @@
   </component>
   <component name="ToolWindowManager">
     <frame x="-1" y="31" width="1682" height="974" extended-state="6" />
-    <editor active="true" />
     <layout>
       <window_info id="Project" active="false" anchor="left" auto_hide="false" internal_type="DOCKED" type="DOCKED" visible="true" show_stripe_button="true" weight="0.1875" sideWeight="0.5" order="4" side_tool="false" content_ui="combo" />
       <window_info id="TODO" active="false" anchor="bottom" auto_hide="false" internal_type="DOCKED" type="DOCKED" visible="false" show_stripe_button="true" weight="0.33" sideWeight="0.5" order="17" side_tool="false" content_ui="tabs" />
       <window_info id="Event Log" active="false" anchor="bottom" auto_hide="false" internal_type="DOCKED" type="DOCKED" visible="false" show_stripe_button="true" weight="0.33" sideWeight="0.5" order="4" side_tool="true" content_ui="tabs" />
-      <window_info id="Run" active="false" anchor="bottom" auto_hide="false" internal_type="DOCKED" type="DOCKED" visible="true" show_stripe_button="true" weight="0.2979452" sideWeight="0.5" order="13" side_tool="false" content_ui="tabs" />
+      <window_info id="Run" active="true" anchor="bottom" auto_hide="false" internal_type="DOCKED" type="DOCKED" visible="true" show_stripe_button="true" weight="0.2979452" sideWeight="0.5" order="13" side_tool="false" content_ui="tabs" />
       <window_info id="Version Control" active="false" anchor="bottom" auto_hide="false" internal_type="DOCKED" type="DOCKED" visible="false" show_stripe_button="true" weight="0.33" sideWeight="0.5" order="5" side_tool="false" content_ui="tabs" />
       <window_info id="Python Console" active="false" anchor="bottom" auto_hide="false" internal_type="DOCKED" type="DOCKED" visible="false" show_stripe_button="true" weight="0.33" sideWeight="0.5" order="6" side_tool="false" content_ui="tabs" />
       <window_info id="Structure" active="false" anchor="left" auto_hide="false" internal_type="DOCKED" type="DOCKED" visible="false" show_stripe_button="true" weight="0.25" sideWeight="0.5" order="5" side_tool="false" content_ui="tabs" />
@@ -525,7 +479,6 @@
     <watches-manager />
   </component>
   <component name="editorHistoryManager">
-    <entry file="file://$PROJECT_DIR$/autoencoder.py" />
     <entry file="file://$PROJECT_DIR$/data_utils.py">
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="1350">
@@ -539,7 +492,9 @@
         <state relative-caret-position="6588">
           <caret line="333" column="39" lean-forward="false" selection-start-line="333" selection-start-column="39" selection-end-line="333" selection-end-column="39" />
           <folding>
-            <element signature="e#0#38#0" expanded="true" />
+            <element signature="e#23244#31299#0" expanded="false" />
+            <element signature="e#41278#45911#0" expanded="false" />
+            <element signature="e#45969#52492#0" expanded="false" />
           </folding>
         </state>
       </provider>
@@ -549,7 +504,7 @@
         <state relative-caret-position="2187">
           <caret line="84" column="35" lean-forward="false" selection-start-line="84" selection-start-column="35" selection-end-line="84" selection-end-column="35" />
           <folding>
-            <element signature="e#0#23#0" expanded="true" />
+            <element signature="e#0#23#0" expanded="false" />
           </folding>
         </state>
       </provider>
@@ -559,7 +514,7 @@
         <state relative-caret-position="702">
           <caret line="31" column="30" lean-forward="false" selection-start-line="31" selection-start-column="30" selection-end-line="31" selection-end-column="30" />
           <folding>
-            <element signature="e#0#23#0" expanded="true" />
+            <element signature="e#0#23#0" expanded="false" />
           </folding>
         </state>
       </provider>
@@ -578,7 +533,9 @@
         <state relative-caret-position="5400">
           <caret line="218" column="23" lean-forward="true" selection-start-line="218" selection-start-column="23" selection-end-line="218" selection-end-column="23" />
           <folding>
-            <element signature="e#0#38#0" expanded="true" />
+            <element signature="e#23244#31299#0" expanded="false" />
+            <element signature="e#41278#45911#0" expanded="false" />
+            <element signature="e#45969#52492#0" expanded="false" />
           </folding>
         </state>
       </provider>
@@ -588,7 +545,7 @@
         <state relative-caret-position="2187">
           <caret line="84" column="35" lean-forward="true" selection-start-line="84" selection-start-column="35" selection-end-line="84" selection-end-column="35" />
           <folding>
-            <element signature="e#0#23#0" expanded="true" />
+            <element signature="e#0#23#0" expanded="false" />
           </folding>
         </state>
       </provider>
@@ -598,7 +555,7 @@
         <state relative-caret-position="2160">
           <caret line="85" column="26" lean-forward="true" selection-start-line="85" selection-start-column="26" selection-end-line="85" selection-end-column="26" />
           <folding>
-            <element signature="e#0#23#0" expanded="true" />
+            <element signature="e#0#23#0" expanded="false" />
           </folding>
         </state>
       </provider>
@@ -699,7 +656,9 @@
         <state relative-caret-position="4509">
           <caret line="184" column="0" lean-forward="false" selection-start-line="184" selection-start-column="0" selection-end-line="184" selection-end-column="0" />
           <folding>
-            <element signature="e#0#38#0" expanded="true" />
+            <element signature="e#23244#31299#0" expanded="false" />
+            <element signature="e#41278#45911#0" expanded="false" />
+            <element signature="e#45969#52492#0" expanded="false" />
           </folding>
         </state>
       </provider>
@@ -709,7 +668,7 @@
         <state relative-caret-position="2025">
           <caret line="76" column="67" lean-forward="false" selection-start-line="76" selection-start-column="67" selection-end-line="76" selection-end-column="67" />
           <folding>
-            <element signature="e#0#23#0" expanded="true" />
+            <element signature="e#0#23#0" expanded="false" />
           </folding>
         </state>
       </provider>
@@ -733,7 +692,7 @@
         <state relative-caret-position="4401">
           <caret line="167" column="22" lean-forward="true" selection-start-line="167" selection-start-column="22" selection-end-line="167" selection-end-column="22" />
           <folding>
-            <element signature="e#0#23#0" expanded="true" />
+            <element signature="e#0#23#0" expanded="false" />
           </folding>
         </state>
       </provider>
@@ -751,7 +710,7 @@
         <state relative-caret-position="108">
           <caret line="4" column="43" lean-forward="false" selection-start-line="4" selection-start-column="43" selection-end-line="4" selection-end-column="43" />
           <folding>
-            <element signature="e#0#11#0" expanded="true" />
+            <element signature="e#0#11#0" expanded="false" />
           </folding>
         </state>
       </provider>
@@ -764,7 +723,7 @@
         <state relative-caret-position="264">
           <caret line="13" column="17" lean-forward="false" selection-start-line="13" selection-start-column="17" selection-end-line="13" selection-end-column="17" />
           <folding>
-            <element signature="e#0#23#0" expanded="true" />
+            <element signature="e#0#23#0" expanded="false" />
           </folding>
         </state>
       </provider>
@@ -774,45 +733,7 @@
     <entry file="file://$USER_HOME$/python3/lib/python3.5/site-packages/tensorflow/python/layers/base.py" />
     <entry file="file://$USER_HOME$/python3/lib/python3.5/site-packages/tensorflow/contrib/seq2seq/python/ops/attention_wrapper.py" />
     <entry file="file://$USER_HOME$/python3/lib/python3.5/site-packages/tensorflow/python/ops/rnn_cell_impl.py" />
-    <entry file="file://$PROJECT_DIR$/discriminator.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="1782">
-          <caret line="84" column="35" lean-forward="false" selection-start-line="84" selection-start-column="35" selection-end-line="84" selection-end-column="35" />
-          <folding>
-            <element signature="e#0#23#0" expanded="true" />
-          </folding>
-        </state>
-      </provider>
-    </entry>
     <entry file="file://$USER_HOME$/python3/lib/python3.5/site-packages/tensorflow/contrib/seq2seq/python/ops/decoder.py" />
-    <entry file="file://$PROJECT_DIR$/seq2seq_model.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="1408">
-          <caret line="74" column="31" lean-forward="false" selection-start-line="74" selection-start-column="9" selection-end-line="74" selection-end-column="31" />
-          <folding />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/simplify.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="2442">
-          <caret line="127" column="53" lean-forward="false" selection-start-line="124" selection-start-column="4" selection-end-line="127" selection-end-column="53" />
-          <folding>
-            <element signature="e#0#38#0" expanded="true" />
-          </folding>
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/generator.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="3652">
-          <caret line="171" column="39" lean-forward="false" selection-start-line="171" selection-start-column="39" selection-end-line="171" selection-end-column="39" />
-          <folding>
-            <element signature="e#0#23#0" expanded="true" />
-          </folding>
-        </state>
-      </provider>
-    </entry>
     <entry file="file://$PROJECT_DIR$/rollout.py">
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="378">
@@ -828,50 +749,86 @@
         </state>
       </provider>
     </entry>
+    <entry file="file://$PROJECT_DIR$/generator.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="154">
+          <caret line="7" column="1" lean-forward="false" selection-start-line="7" selection-start-column="1" selection-end-line="7" selection-end-column="41" />
+          <folding>
+            <element signature="e#0#23#0" expanded="false" />
+          </folding>
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/discriminator.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="1848">
+          <caret line="84" column="35" lean-forward="false" selection-start-line="84" selection-start-column="35" selection-end-line="84" selection-end-column="35" />
+          <folding>
+            <element signature="e#0#23#0" expanded="false" />
+          </folding>
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/seq2seq_model.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="511">
+          <caret line="74" column="31" lean-forward="false" selection-start-line="74" selection-start-column="9" selection-end-line="74" selection-end-column="31" />
+          <folding />
+        </state>
+      </provider>
+    </entry>
     <entry file="file://$PROJECT_DIR$/autoencoder_noattention.py">
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="44">
           <caret line="6" column="29" lean-forward="false" selection-start-line="6" selection-start-column="29" selection-end-line="6" selection-end-column="29" />
+          <folding />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/simplify.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="2794">
+          <caret line="127" column="53" lean-forward="false" selection-start-line="124" selection-start-column="4" selection-end-line="127" selection-end-column="53" />
           <folding>
-            <marker date="1508649581717" expanded="true" signature="204:6548" ph="..." />
-            <marker date="1508649581717" expanded="true" signature="1653:2422" ph="..." />
-            <marker date="1508649581717" expanded="true" signature="2522:5020" ph="..." />
-            <marker date="1508649581717" expanded="true" signature="2847:4039" ph="..." />
-            <marker date="1508649581717" expanded="true" signature="4057:5020" ph="..." />
-            <marker date="1508649581717" expanded="true" signature="5074:6488" ph="..." />
-            <marker date="1508649581717" expanded="true" signature="5292:5512" ph="..." />
-            <marker date="1508649581717" expanded="true" signature="5569:6488" ph="..." />
-            <marker date="1508649581717" expanded="true" signature="5697:6112" ph="..." />
-            <marker date="1508649581717" expanded="true" signature="6129:6488" ph="&quot;&quot;&quot;...&quot;&quot;&quot;" />
-            <marker date="1508649581717" expanded="true" signature="6583:6634" ph="..." />
-            <marker date="1508649581717" expanded="true" signature="6927:7064" ph="..." />
-            <marker date="1508649581717" expanded="true" signature="7100:7964" ph="..." />
+            <element signature="e#0#38#0" expanded="true" />
           </folding>
         </state>
       </provider>
     </entry>
     <entry file="file://$PROJECT_DIR$/data_utils.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="65">
+        <state relative-caret-position="2574">
           <caret line="129" column="52" lean-forward="false" selection-start-line="129" selection-start-column="52" selection-end-line="129" selection-end-column="52" />
           <folding />
         </state>
       </provider>
     </entry>
+    <entry file="file://$PROJECT_DIR$/discriminator_RNN.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="225">
+          <caret line="105" column="0" lean-forward="false" selection-start-line="105" selection-start-column="0" selection-end-line="105" selection-end-column="0" />
+          <folding>
+            <element signature="e#0#23#0" expanded="true" />
+          </folding>
+        </state>
+      </provider>
+    </entry>
     <entry file="file://$PROJECT_DIR$/birnn_seq2seq.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="87">
-          <caret line="24" column="13" lean-forward="true" selection-start-line="24" selection-start-column="13" selection-end-line="24" selection-end-column="13" />
+        <state relative-caret-position="257">
+          <caret line="77" column="78" lean-forward="false" selection-start-line="77" selection-start-column="78" selection-end-line="77" selection-end-column="78" />
           <folding />
         </state>
       </provider>
     </entry>
     <entry file="file://$PROJECT_DIR$/generateSimple.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="15643">
-          <caret line="766" column="24" lean-forward="false" selection-start-line="766" selection-start-column="24" selection-end-line="766" selection-end-column="24" />
+        <state relative-caret-position="176">
+          <caret line="33" column="12" lean-forward="true" selection-start-line="33" selection-start-column="12" selection-end-line="33" selection-end-column="12" />
           <folding>
-            <element signature="e#0#38#0" expanded="true" />
+            <element signature="e#23244#31299#0" expanded="false" />
+            <element signature="e#41278#45911#0" expanded="false" />
+            <element signature="e#45969#52492#0" expanded="false" />
           </folding>
         </state>
       </provider>

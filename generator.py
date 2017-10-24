@@ -16,7 +16,6 @@ class Generator():
         self.learning_rate = tf.Variable(float(hparams.learning_rate), trainable=False)
         self.clip_value = hparams.clip_value
         self.max_seq_length = 50
-        self.learning_rate_decay_op = self.learning_rate.assign(self.learning_rate * hparams.decay_factor)
 
         if mode != tf.contrib.learn.ModeKeys.INFER:
             self.decoder_input_ids = tf.placeholder(dtype=tf.int32, shape=[None,None])
@@ -63,6 +62,35 @@ class Generator():
                                                                                                        maximum_iterations=self.max_seq_length * 2,
                                                                                                        swap_memory=True)
                 self.sample_id = tf.unstack(decoder_outputs.sample_id, axis=0)
+
+        with tf.variable_scope("rollout") as scope:
+            self.given_decoder_inputs_ids = tf.placeholder(dtype=tf.int32, shape=[None, None])
+            self.given_decoder_length = tf.placeholder(dtype=tf.int32, shape=[None, None])
+            self.given_next_ids = tf.placeholder(dtype=tf.int32, shape=[None])
+            initial_state = self.initial_state
+            with tf.device("/cpu:0"):
+                given_decoder_inputs = tf.nn.embedding_lookup(self.embeddings, self.given_decoder_input_ids)
+            helper1 = tf.contrib.seq2seq.TrainingHelper(decoder_inputs, self.decoder_input_length)
+            my_decoder1 = tf.contrib.seq2seq.BasicDecoder(cell=decoder_cell,
+                                                             helper=helper,
+                                                             initial_state=initial_state,
+                                                             output_layer=self.output_layer
+                                                             )
+            decoder1_outputs, decoder1_state, decoder1_output_len = tf.contrib.seq2seq.dynamic_decode(my_decoder1,
+                                                                                                   maximum_iterations=self.max_seq_length * 2,
+                                                                                                   swap_memory=True)
+
+            helper2 = tf.contrib.seq2seq.SampleEmbeddingHelper(self.embeddings, self.given_next_ids, hparams.EOS_ID)
+            my_decoder2 = tf.contrib.seq2seq.BasicDecoder(cell=decoder_cell,
+                                                          helper=helper,
+                                                          initial_state=decoder1_state,
+                                                          output_layer=self.output_layer
+                                                          )
+            decoder2_outputs, decoder2_state, decoder2_output_len = tf.contrib.seq2seq.dynamic_decode(my_decoder2,
+                                                                                                      maximum_iterations=self.max_seq_length * 2,
+                                                                                                      swap_memory=True)
+
+
 
         if mode != tf.contrib.learn.ModeKeys.INFER:
             self.targets = tf.placeholder(dtype=tf.int32, shape=[None, None])

@@ -64,7 +64,7 @@ def add_arguments(parser):
           attention\
           """)
     parser.add_argument("--from_vocab_size", type=int, default=50000, help="NormalWiki vocabulary size")
-    parser.add_argument("--to_vocab_size", type=int, default=40000, help="SimpleWiki vocabulary size")
+    parser.add_argument("--to_vocab_size", type=int, default=50000, help="SimpleWiki vocabulary size")
     parser.add_argument("--num_layers", type=int, default=2, help="Number of layers in the model")
     parser.add_argument("--num_units", type=int, default=256, help="Size of each model layer")
     parser.add_argument("--emb_dim", type=int, default=256, help="Dimension of word embedding")
@@ -848,10 +848,6 @@ def train_dis(hparams, train=True, interact=False):
                                                    train_model.model.global_step], feed_dict=feed)
 
             print(1 - absolute_diff)
-            #print(b)
-            #print(a)
-            #print(a)
-            #print(b)
             if global_step % 50 == 0:
                 print(absolute_diff / 64.0)
 
@@ -879,9 +875,9 @@ def train_dis(hparams, train=True, interact=False):
         if ckpt and tf.train.checkpoint_exists(ckpt.model_checkpoint_path):
             infer_model.model.saver.restore(infer_sess, ckpt.model_checkpoint_path)
             from_vocab_path = os.path.join(dis_hparams.data_dir,
-                                           "vocab%d.from" % dis_hparams.from_vocab_size)
+                                           "vocab_same%d.from" % dis_hparams.from_vocab_size)
             to_vocab_path = os.path.join(dis_hparams.data_dir,
-                                         "vocab%d.to" % dis_hparams.to_vocab_size)
+                                         "vocab_same%d.to" % dis_hparams.to_vocab_size)
             from_vocab, _ = data_utils.initialize_vocabulary(from_vocab_path)
             _, rev_to_vocab = data_utils.initialize_vocabulary(to_vocab_path)
             file = open(FLAGS.from_test_file, "r", encoding="utf-8")
@@ -949,7 +945,7 @@ def main(_):
         to_valid_data,  
         FLAGS.from_vocab_size,
         FLAGS.to_vocab_size,
-        same_vocab=False
+        same_vocab=True
     )
     hparams = create_hparams(FLAGS)
     hparams.add_hparam(name="from_train", value=from_train)

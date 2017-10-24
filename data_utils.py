@@ -148,12 +148,20 @@ def data_to_token_ids(data_path, target_path, vocabulary_path,
 
 def prepare_data(data_dir, from_train_path, to_train_path, from_dev_path, to_dev_path, from_vocabulary_size,
                  to_vocabulary_size, same_vocab=False, tokenizer=None):
-    to_vocab_path = os.path.join(data_dir, "vocab%d.to" % to_vocabulary_size)
-    from_vocab_path = os.path.join(data_dir, "vocab%d.from" % from_vocabulary_size)
-    to_train_ids_path = to_train_path + (".ids%d" % to_vocabulary_size)
-    from_train_ids_path = from_train_path + (".ids%d" % from_vocabulary_size)
-    to_dev_ids_path = to_dev_path + (".ids%d" % to_vocabulary_size)
-    from_dev_ids_path = from_dev_path + (".ids%d" % from_vocabulary_size)
+    if same_vocab == False:
+        to_vocab_path = os.path.join(data_dir, "vocab%d.to" % to_vocabulary_size)
+        from_vocab_path = os.path.join(data_dir, "vocab%d.from" % from_vocabulary_size)
+        to_train_ids_path = to_train_path + (".ids%d" % to_vocabulary_size)
+        from_train_ids_path = from_train_path + (".ids%d" % from_vocabulary_size)
+        to_dev_ids_path = to_dev_path + (".ids%d" % to_vocabulary_size)
+        from_dev_ids_path = from_dev_path + (".ids%d" % from_vocabulary_size)
+    else:
+        to_vocab_path = os.path.join(data_dir, "vocab_same%d.to" % to_vocabulary_size)
+        from_vocab_path = os.path.join(data_dir, "vocab_same%d.from" % from_vocabulary_size)
+        to_train_ids_path = to_train_path + (".ids_same%d" % to_vocabulary_size)
+        from_train_ids_path = from_train_path + (".ids_same%d" % from_vocabulary_size)
+        to_dev_ids_path = to_dev_path + (".ids_same%d" % to_vocabulary_size)
+        from_dev_ids_path = from_dev_path + (".ids_same%d" % from_vocabulary_size)
     if same_vocab == False:
         create_vocabulary(to_vocab_path, to_train_path, to_vocabulary_size, tokenizer)
         create_vocabulary(from_vocab_path, from_train_path, from_vocabulary_size, tokenizer)

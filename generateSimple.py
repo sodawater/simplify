@@ -18,6 +18,7 @@ from generator import Generator
 from discriminator import Discriminator
 from rollout import Rollout
 from autoencoder import Autoencoder
+from reconstructor import Reconstructor
 from birnn_seq2seq import BiRNN_seq2seq
 import argparse
 import copy
@@ -895,6 +896,306 @@ def train_dis(hparams, train=True, interact=False):
                 outfile(" ".join([tf.compat.as_str(rev_to_vocab[output]) for output in sample_outputs]) + "\n")
             file.close()
             outfile.close()
+        else:
+            raise ValueError("ckpt file not found.")
+
+def train_recon(hparams, pretrain=True, train=True, interact=False):
+    recon_hparams = copy.deepcopy(hparams)
+    recon_hparams.add_hparam(name="recon_ckpt_path", value=os.path.join(hparams.recon_ckpt_dir, "recon.ckpt"))
+    train_model, eval_model, infer_model = create_model(recon_hparams, Reconstructor)
+    config = tf.ConfigProto()
+    config.gpu_options.allow_growth = True
+    train_sess = tf.Session(config=config, graph=train_model.graph)
+    eval_sess = tf.Session(config=config, graph=eval_model.graph)
+    infer_sess = tf.Session(config=config, graph=infer_model.graph)
+
+    ckpt = tf.train.get_checkpoint_state(recon_hparams.recon_ckpt_dir)
+    global_step = 0
+    with train_model.graph.as_default():
+        if ckpt and tf.train.checkpoint_exists(ckpt.model_checkpoint_path):
+            print("Reading model parameters from %s" % ckpt.model_checkpoint_path)
+            train_model.model.saver.restore(train_sess, ckpt.model_checkpoint_path)
+            global_step = train_model.model.global_step.eval(session=train_sess)
+        else:
+            train_sess.run(tf.global_variables_initializer())
+
+    train_set_pair = read_data_pair(recon_hparams.from_train, recon_hparams.to_train, recon_hparams.max_train_data_size)
+    train_bucket_sizes_pair = [len(train_set_pair[b]) for b in range(len(_buckets))]
+    train_total_size_pair = float(sum(train_bucket_sizes_pair))
+    train_buckets_scale_pair = [sum(train_bucket_sizes_pair[:i + 1]) / train_total_size_pair
+                               for i in range(len(train_bucket_sizes_pair))]
+
+    valid_set_pair = read_data_pair(recon_hparams.from_valid, recon_hparams.to_valid, recon_hparams.max_train_data_size)
+    valid_bucket_sizes_pair = [len(valid_set_pair[b]) for b in range(len(_buckets))]
+    valid_total_size_pair = float(sum(valid_bucket_sizes_pair))
+    valid_buckets_scale_pair = [sum(valid_bucket_sizes_pair[:i + 1]) / valid_total_size_pair
+                               for i in range(len(valid_bucket_sizes_pair))]
+
+    num_train_steps = recon_hparams.num_train_epoch * int(train_total_size_pair / FLAGS.batch_size)
+    if pretrain:
+        while global_step < num_train_steps:
+            random_number_01 = np.random.random_sample()
+            bucket_id = min([i for i in range(len(train_buckets_scale_pair))
+                             if train_buckets_scale_pair[i] > random_number_01])
+            encoder_in, decoder_in, reconstructor_in = train_model.model.get_batch(
+                train_set_pair, _buckets,
+                bucket_id, recon_hparams.batch_size)
+            encoder_inputs, encoder_sequence_length = encoder_in
+            decoder_inputs, decoder_targets, decoder_target_weights, decoder_sequence_length = decoder_in
+            reconstructor_inputs, reconstructor_targets, reconstructor_target_weights, recon_sequence_length = reconstructor_in
+            feed = {train_model.model.encoder_input_ids: encoder_inputs,
+                    train_model.model.encoder_input_length: encoder_sequence_length,
+                    train_model.model.decoder_input_ids: decoder_inputs,
+                    train_model.model.decoder_input_length: decoder_sequence_length,
+                    train_model.model.reconstructor_input_ids: reconstructor_inputs,
+                    train_model.model.reconstructor_input_length: recon_sequence_length,
+                    train_model.model.decoder_targets: decoder_targets,
+                    train_model.model.decoder_target_weights: decoder_target_weights,
+                    train_model.model.reconstructor_targets: reconstructor_targets,
+                    train_model.model.reconstructor_target_weights: reconstructor_target_weights}
+            loss, _, global_step = train_sess.run([train_model.model.loss_pt,
+                                                   train_model.model.train_op_pt,
+                                                   train_model.model.global_step_pt
+                                                   ], feed_dict=feed)
+
+            # print(loss/_source_buckets[bucket_id])
+            #print(alignment_history)
+            if global_step % 50 == 0:
+                print(loss / _source_buckets[bucket_id])
+            #if global_step % 1000 == 0:
+            #    learning_rate = train_sess.run(train_model.model.learning_rate_decay_op)
+            #    print("learning rate is %f now" % learning_rate)
+            if global_step % recon_hparams.steps_per_eval == 0:
+                train_model.model.saver.save(train_sess, recon_hparams.recon_ckpt_path, global_step=global_step)
+                ckpt = tf.train.get_checkpoint_state(recon_hparams.recon_ckpt_dir)
+                if ckpt and tf.train.checkpoint_exists(ckpt.model_checkpoint_path):
+                    eval_model.model.saver.restore(eval_sess, ckpt.model_checkpoint_path)
+                else:
+                    raise ValueError("ckpt file not found.")
+                random_number_02 = np.random.random_sample()
+                bucket_id = min([i for i in range(len(valid_buckets_scale_pair))
+                                 if valid_buckets_scale_pair[i] > random_number_02])
+                encoder_in, decoder_in, reconstructor_in = eval_model.model.get_batch(
+                    valid_set_pair, _buckets,
+                    bucket_id, recon_hparams.batch_size)
+                encoder_inputs, encoder_sequence_length = encoder_in
+                decoder_inputs, decoder_targets, decoder_target_weights, decoder_sequence_length = decoder_in
+                reconstructor_inputs, reconstructor_targets, reconstructor_target_weights, recon_sequence_length = reconstructor_in
+                feed = {eval_model.model.encoder_input_ids: encoder_inputs,
+                        eval_model.model.encoder_input_length: encoder_sequence_length,
+                        eval_model.model.decoder_input_ids: decoder_inputs,
+                        eval_model.model.decoder_input_length: decoder_sequence_length,
+                        eval_model.model.reconstructor_input_ids: reconstructor_inputs,
+                        eval_model.model.reconstructor_input_length: recon_sequence_length,
+                        eval_model.model.decoder_targets: decoder_targets,
+                        eval_model.model.decoder_target_weights: decoder_target_weights,
+                        eval_model.model.reconstructor_targets: reconstructor_targets,
+                        eval_model.model.reconstructor_target_weights: reconstructor_target_weights}
+                loss = eval_sess.run(eval_model.model.loss_pt, feed_dict=feed)
+                # print(loss)
+                print("step %d with eval loss %f" % (global_step, loss / _source_buckets[bucket_id]))
+    else:
+        ckpt = tf.train.get_checkpoint_state(recon_hparams.recon_ckpt_dir)
+        if ckpt and tf.train.checkpoint_exists(ckpt.model_checkpoint_path):
+            infer_model.model.saver.restore(infer_sess, ckpt.model_checkpoint_path)
+            from_vocab_path = os.path.join(recon_hparams.data_dir,
+                                           "vocab%d.from" % recon_hparams.from_vocab_size)
+            to_vocab_path = os.path.join(recon_hparams.data_dir,
+                                         "vocab%d.to" % recon_hparams.to_vocab_size)
+            from_vocab, rev_from_vocab = data_utils.initialize_vocabulary(from_vocab_path)
+            _, rev_to_vocab = data_utils.initialize_vocabulary(to_vocab_path)
+            if interact:
+                sys.stdout.write("> ")
+                sys.stdout.flush()
+                sentence = sys.stdin.readline()
+                while sentence:
+                    token_words = sentence.rstrip("\n").lower().split()
+                    token_words.append("")
+                    #print(token_words)
+                    token_ids = data_utils.sentence_to_token_ids(sentence, from_vocab)
+                    encoder_inputs = [token_ids + [recon_hparams.EOS_ID]]
+                    source_sequence_length = [len(token_ids) + 1]
+                    feed = {infer_model.model.encoder_input_ids: encoder_inputs,
+                            infer_model.model.encoder_input_length: source_sequence_length}
+                    sample_outputs, alignment = infer_sess.run([infer_model.model.sample_id,
+                                                     infer_model.model.alignment_history],
+                                                    feed_dict=feed)
+                    sample_outputs = sample_outputs[0].tolist()
+                    if recon_hparams.EOS_ID in sample_outputs:
+                        sample_outputs = sample_outputs[:sample_outputs.index(data_utils.EOS_ID)]
+                    outputs = []
+                    alignment = alignment[0].tolist()
+                    id = 0
+                    for output in sample_outputs:
+                        if output != 3:
+                            outputs.append(tf.compat.as_str(rev_to_vocab[output]))
+                        else:
+                            outputs.append(tf.compat.as_str(token_words[alignment[id]]))
+                        id += 1
+                    print(" ".join(outputs))
+                    print(" ".join([tf.compat.as_str(rev_to_vocab[output]) for output in sample_outputs]))
+                    print("> ", end="")
+                    sys.stdout.flush()
+                    sentence = sys.stdin.readline()
+            else:
+                file = open(FLAGS.from_test_data, "r", encoding="utf-8")
+                outfile = open("test_out_nodecay_half", "w", encoding="utf-8")
+                for line in file:
+                    sentence = line.rstrip("\n")
+                    token_words = sentence.rstrip("\n").lower().split()
+                    token_words.append("")
+                    token_ids = data_utils.sentence_to_token_ids(sentence, from_vocab)
+                    encoder_inputs = [token_ids + [recon_hparams.EOS_ID]]
+                    source_sequence_length = [len(token_ids) + 1]
+                    feed = {infer_model.model.encoder_input_ids: encoder_inputs,
+                            infer_model.model.encoder_input_length: source_sequence_length}
+                    sample_outputs, alignment = infer_sess.run([infer_model.model.sample_id,
+                                                                infer_model.model.alignment_history],
+                                                               feed_dict=feed)
+                    sample_outputs = sample_outputs[0].tolist()
+                    if recon_hparams.EOS_ID in sample_outputs:
+                        sample_outputs = sample_outputs[:sample_outputs.index(data_utils.EOS_ID)]
+                    outputs = []
+                    alignment = alignment[0].tolist()
+                    id = 0
+                    for output in sample_outputs:
+                        if output != 3:
+                            outputs.append(tf.compat.as_str(rev_to_vocab[output]))
+                        else:
+                            outputs.append(tf.compat.as_str(token_words[alignment[id]]))
+                        id += 1
+                    print(" ".join(outputs))
+                    outfile.write(" ".join(outputs) + "\n")
+                file.close()
+                outfile.close()
+        else:
+            raise ValueError("ckpt file not found.")
+
+    if train:
+        while global_step < num_train_steps:
+            random_number_01 = np.random.random_sample()
+            bucket_id = min([i for i in range(len(train_buckets_scale_pair))
+                             if train_buckets_scale_pair[i] > random_number_01])
+            encoder_in, decoder_in, reconstructor_in = train_model.model.get_batch(
+                train_set_pair, _buckets,
+                bucket_id, recon_hparams.batch_size)
+            encoder_inputs, encoder_sequence_length = encoder_in
+            decoder_inputs, decoder_targets, decoder_target_weights, decoder_sequence_length = decoder_in
+            reconstructor_inputs, reconstructor_targets, reconstructor_target_weights, recon_sequence_length = reconstructor_in
+            feed = {train_model.model.encoder_input_ids: encoder_inputs,
+                    train_model.model.encoder_input_length: encoder_sequence_length,
+                    train_model.model.reconstructor_input_ids: reconstructor_inputs,
+                    train_model.model.reconstructor_input_length: recon_sequence_length,
+                    train_model.model.targets: targets,
+                    train_model.model.target_weights: target_weights}
+            loss, _, global_step = train_sess.run([train_model.model.loss,
+                                                   train_model.model.train_op,
+                                                   train_model.model.global_step
+                                                   ], feed_dict=feed)
+
+            # print(loss/_source_buckets[bucket_id])
+            #print(alignment_history)
+            if global_step % 50 == 0:
+                print(loss / _source_buckets[bucket_id])
+            #if global_step % 1000 == 0:
+            #    learning_rate = train_sess.run(train_model.model.learning_rate_decay_op)
+            #    print("learning rate is %f now" % learning_rate)
+            if global_step % recon_hparams.steps_per_eval == 0:
+                train_model.model.saver.save(train_sess, recon_hparams.recon_ckpt_path, global_step=global_step)
+                ckpt = tf.train.get_checkpoint_state(recon_hparams.recon_ckpt_dir)
+                if ckpt and tf.train.checkpoint_exists(ckpt.model_checkpoint_path):
+                    eval_model.model.saver.restore(eval_sess, ckpt.model_checkpoint_path)
+                else:
+                    raise ValueError("ckpt file not found.")
+                random_number_02 = np.random.random_sample()
+                bucket_id = min([i for i in range(len(valid_buckets_scale_pair))
+                                 if valid_buckets_scale_pair[i] > random_number_02])
+                encoder_inputs, reconstructor_inputs, targets, target_weights, source_sequence_length, target_sequence_length = train_model.model.get_batch(
+                    valid_set_pair, _buckets,
+                    bucket_id, recon_hparams.batch_size)
+                feed = {eval_model.model.encoder_input_ids: encoder_inputs,
+                        eval_model.model.encoder_input_length: source_sequence_length,
+                        eval_model.model.reconstructor_input_ids: reconstructor_inputs,
+                        eval_model.model.reconstructor_input_length: target_sequence_length,
+                        eval_model.model.targets: targets,
+                        eval_model.model.target_weights: target_weights}
+                loss = eval_sess.run(eval_model.model.loss, feed_dict=feed)
+                # print(loss)
+                print("step %d with eval loss %f" % (global_step, loss / _source_buckets[bucket_id]))
+    else:
+        ckpt = tf.train.get_checkpoint_state(recon_hparams.recon_ckpt_dir)
+        if ckpt and tf.train.checkpoint_exists(ckpt.model_checkpoint_path):
+            infer_model.model.saver.restore(infer_sess, ckpt.model_checkpoint_path)
+            from_vocab_path = os.path.join(recon_hparams.data_dir,
+                                           "vocab%d.from" % recon_hparams.from_vocab_size)
+            to_vocab_path = os.path.join(recon_hparams.data_dir,
+                                         "vocab%d.to" % recon_hparams.to_vocab_size)
+            from_vocab, rev_from_vocab = data_utils.initialize_vocabulary(from_vocab_path)
+            _, rev_to_vocab = data_utils.initialize_vocabulary(to_vocab_path)
+            if interact:
+                sys.stdout.write("> ")
+                sys.stdout.flush()
+                sentence = sys.stdin.readline()
+                while sentence:
+                    token_words = sentence.rstrip("\n").lower().split()
+                    token_words.append("")
+                    #print(token_words)
+                    token_ids = data_utils.sentence_to_token_ids(sentence, from_vocab)
+                    encoder_inputs = [token_ids + [recon_hparams.EOS_ID]]
+                    source_sequence_length = [len(token_ids) + 1]
+                    feed = {infer_model.model.encoder_input_ids: encoder_inputs,
+                            infer_model.model.encoder_input_length: source_sequence_length}
+                    sample_outputs, alignment = infer_sess.run([infer_model.model.sample_id,
+                                                     infer_model.model.alignment_history],
+                                                    feed_dict=feed)
+                    sample_outputs = sample_outputs[0].tolist()
+                    if recon_hparams.EOS_ID in sample_outputs:
+                        sample_outputs = sample_outputs[:sample_outputs.index(data_utils.EOS_ID)]
+                    outputs = []
+                    alignment = alignment[0].tolist()
+                    id = 0
+                    for output in sample_outputs:
+                        if output != 3:
+                            outputs.append(tf.compat.as_str(rev_to_vocab[output]))
+                        else:
+                            outputs.append(tf.compat.as_str(token_words[alignment[id]]))
+                        id += 1
+                    print(" ".join(outputs))
+                    print(" ".join([tf.compat.as_str(rev_to_vocab[output]) for output in sample_outputs]))
+                    print("> ", end="")
+                    sys.stdout.flush()
+                    sentence = sys.stdin.readline()
+            else:
+                file = open(FLAGS.from_test_data, "r", encoding="utf-8")
+                outfile = open("test_out_nodecay_half", "w", encoding="utf-8")
+                for line in file:
+                    sentence = line.rstrip("\n")
+                    token_words = sentence.rstrip("\n").lower().split()
+                    token_words.append("")
+                    token_ids = data_utils.sentence_to_token_ids(sentence, from_vocab)
+                    encoder_inputs = [token_ids + [recon_hparams.EOS_ID]]
+                    source_sequence_length = [len(token_ids) + 1]
+                    feed = {infer_model.model.encoder_input_ids: encoder_inputs,
+                            infer_model.model.encoder_input_length: source_sequence_length}
+                    sample_outputs, alignment = infer_sess.run([infer_model.model.sample_id,
+                                                                infer_model.model.alignment_history],
+                                                               feed_dict=feed)
+                    sample_outputs = sample_outputs[0].tolist()
+                    if recon_hparams.EOS_ID in sample_outputs:
+                        sample_outputs = sample_outputs[:sample_outputs.index(data_utils.EOS_ID)]
+                    outputs = []
+                    alignment = alignment[0].tolist()
+                    id = 0
+                    for output in sample_outputs:
+                        if output != 3:
+                            outputs.append(tf.compat.as_str(rev_to_vocab[output]))
+                        else:
+                            outputs.append(tf.compat.as_str(token_words[alignment[id]]))
+                        id += 1
+                    print(" ".join(outputs))
+                    outfile.write(" ".join(outputs) + "\n")
+                file.close()
+                outfile.close()
         else:
             raise ValueError("ckpt file not found.")
 

@@ -78,7 +78,6 @@ class Reconstructor():
             else:
                 decoder_cell = tf.contrib.rnn.BasicLSTMCell(self.num_units)
             memory = tf.concat([encoder_outputs_fw, encoder_outputs_bw], axis=2)
-            print('de',encoder_outputs_fw)
             initial_state = encoder_state
 
             attention_mechanism = tf.contrib.seq2seq.LuongAttention(num_units=self.num_units,
@@ -90,7 +89,7 @@ class Reconstructor():
                                                                alignment_history=True,
                                                                attention_layer_size=self.num_units)
 
-            helper = tf.contrib.seq2seq.SampleEmbeddingHelper(self.to_embeddings, tf.tile([hparams.GO_ID], [self.batch_size]), hparams.EOS_ID)
+            helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(self.to_embeddings, tf.tile([hparams.GO_ID], [self.batch_size]), hparams.EOS_ID)
             initial_state_npt = decoder_cell.zero_state(self.batch_size, tf.float32).clone(cell_state=initial_state)
             my_decoder = tf.contrib.seq2seq.BasicDecoder(cell=decoder_cell,
                                                          helper=helper,
@@ -119,6 +118,7 @@ class Reconstructor():
                 self.decoder_logits_pt = decoder_outputs_pt.rnn_output
             else:
                 alignment_history = (final_state.alignment_history.stack())
+                self.a = alignment_history
                 self.alignment_history = tf.unstack(tf.argmax(alignment_history, axis=2), axis=1)
                 self.sample_id = decoder_outputs.sample_id
 
@@ -185,7 +185,7 @@ class Reconstructor():
                 self.reconstructor_logits_pt = reconstructor_outputs_pt.rnn_output
             else:
 
-                helper = tf.contrib.seq2seq.SampleEmbeddingHelper(self.from_embeddings,
+                helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(self.from_embeddings,
                                                                   tf.tile([hparams.GO_ID], [self.batch_size]),
                                                                   hparams.EOS_ID)
 
@@ -214,8 +214,8 @@ class Reconstructor():
 
                 decoder_crossent = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.decoder_targets, logits=self.decoder_logits_pt)
                 reconstructor_crossent = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.reconstructor_targets, logits=self.reconstructor_logits_pt)
-                self.loss_pt = (tf.reduce_sum(decoder_crossent * self.decoder_target_weights) +
-                                0.5 * tf.reduce_sum(reconstructor_crossent * self.reconstructor_target_weights)) / tf.to_float(self.batch_size)
+                self.loss_pt = (tf.reduce_sum(decoder_crossent * self.decoder_target_weights)) / tf.to_float(self.batch_size)#+
+                                #0.0 * tf.reduce_sum(reconstructor_crossent * self.reconstructor_target_weights)) / tf.to_float(self.batch_size)
 
             if mode == tf.contrib.learn.ModeKeys.TRAIN:
                 self.global_step = tf.Variable(0, trainable=False)
@@ -225,7 +225,8 @@ class Reconstructor():
                     gradients, v = zip(*optimizer.compute_gradients(self.loss))
                     gradients, _ = tf.clip_by_global_norm(gradients, self.clip_value)
 
-                    optimizer_pt = tf.train.AdamOptimizer(self.learning_rate)
+                    #optimizer_pt = tf.train.AdamOptimizer(self.learning_rate)
+                    optimizer_pt = tf.train.GradientDescentOptimizer(self.learning_rate)
                     gradients_pt, v_pt = zip(*optimizer_pt.compute_gradients(self.loss_pt))
                     gradients_pt, _ = tf.clip_by_global_norm(gradients_pt, self.clip_value)
 

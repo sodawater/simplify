@@ -18,6 +18,11 @@ class Reconstructor():
         self.max_seq_length = 50
         self.learning_rate_decay_op = self.learning_rate.assign(self.learning_rate * hparams.decay_factor)
 
+        if mode == tf.contrib.learn.ModeKeys.TRAIN:
+            self.keep_prob = hparams.keep_prob
+        else:
+            self.keep_prob = 1.0
+
         if mode != tf.contrib.learn.ModeKeys.INFER:
             self.encoder_input_ids = tf.placeholder(dtype=tf.int32, shape=[None, None])
             self.encoder_input_length = tf.placeholder(dtype=tf.int32, shape=[None])
@@ -34,18 +39,21 @@ class Reconstructor():
         with tf.variable_scope("embedding") as scope:
             self.from_embeddings = tf.Variable(self.init_matrix([self.from_vocab_size, self.emb_dim]))
             self.to_embeddings = tf.Variable(self.init_matrix([self.to_vocab_size, self.emb_dim]))
-            #self.to_embeddings = self.from_embeddings
-        with tf.variable_scope("projection") as scope:
-            self.output_layer = layers_core.Dense(self.to_vocab_size)
-            self.output_layer2 = layers_core.Dense(self.from_vocab_size)
 
+        with tf.variable_scope("projection") as scope:
+            self.output_layer = layers_core.Dense(self.to_vocab_size, use_bias=False)
+            self.output_layer2 = layers_core.Dense(self.from_vocab_size, use_bias=False)
+
+        def _get_cell(num_units):
+            return tf.contrib.rnn.DropoutWrappper(tf.contrib.rnn.BasicLSTMCell(num_units),
+                                                  input_keep_prob=self.keep_prob)
         with tf.variable_scope("encoder") as scope:
             if self.num_layers > 1:
-                encoder_cell_fw = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.BasicLSTMCell(self.num_units) for _ in range(self.num_layers)])
-                encoder_cell_bw = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.BasicLSTMCell(self.num_units) for _ in range(self.num_layers)])
+                encoder_cell_fw = tf.contrib.rnn.MultiRNNCell([_get_cell(self.num_units) for _ in range(self.num_layers)])
+                encoder_cell_bw = tf.contrib.rnn.MultiRNNCell([_get_cell(self.num_units) for _ in range(self.num_layers)])
             else:
-                encoder_cell_fw = tf.contrib.rnn.BasicLSTMCell(self.num_units)
-                encoder_cell_bw = tf.contrib.rnn.BasicLSTMCell(self.num_units)
+                encoder_cell_fw = _get_cell(self.num_units)
+                encoder_cell_bw = _get_cell(self.num_units)
             with tf.device("/cpu:0"):
                 self.encoder_inputs = tf.nn.embedding_lookup(self.from_embeddings, self.encoder_input_ids)
             encoder_outputs, encoder_state = tf.nn.bidirectional_dynamic_rnn(cell_fw=encoder_cell_fw,
@@ -74,35 +82,37 @@ class Reconstructor():
 
         with tf.variable_scope("decoder") as scope:
             if self.num_layers > 1:
-                decoder_cell = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.BasicLSTMCell(self.num_units) for _ in range(self.num_layers)])
+                decoder_cell = tf.contrib.rnn.MultiRNNCell([_get_cell(self.num_units) for _ in range(self.num_layers)])
             else:
-                decoder_cell = tf.contrib.rnn.BasicLSTMCell(self.num_units)
-            memory = tf.concat([encoder_outputs_fw, encoder_outputs_bw], axis=2)
+                decoder_cell = _get_cell(self.num_units)
+            memory_t = tf.concat([encoder_outputs_fw, encoder_outputs_bw], axis=2)
             initial_state = encoder_state
 
             attention_mechanism = tf.contrib.seq2seq.LuongAttention(num_units=self.num_units,
-                                                                    memory=memory,
+                                                                    memory=memory_t,
                                                                     scale=True,
                                                                     memory_sequence_length=self.encoder_input_length)
             decoder_cell = tf.contrib.seq2seq.AttentionWrapper(decoder_cell,
                                                                attention_mechanism,
                                                                alignment_history=True,
                                                                attention_layer_size=self.num_units)
-
-            helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(self.to_embeddings, tf.tile([hparams.GO_ID], [self.batch_size]), hparams.EOS_ID)
-            initial_state_npt = decoder_cell.zero_state(self.batch_size, tf.float32).clone(cell_state=initial_state)
-            my_decoder = tf.contrib.seq2seq.BasicDecoder(cell=decoder_cell,
-                                                         helper=helper,
-                                                         initial_state=initial_state_npt,
+            #########train without targets ###########
+            helper_t = tf.contrib.seq2seq.GreedyEmbeddingHelper(self.to_embeddings, tf.tile([hparams.GO_ID], [self.batch_size]), hparams.EOS_ID)
+            initial_state_t = decoder_cell.zero_state(self.batch_size, tf.float32).clone(cell_state=initial_state)
+            my_decoder_t = tf.contrib.seq2seq.BasicDecoder(cell=decoder_cell,
+                                                         helper=helper_t,
+                                                         initial_state=initial_state_t,
                                                          output_layer=self.output_layer)
-            decoder_outputs, decoder_states, final_state, decoder_output_len = tf.contrib.seq2seq.my_dynamic_decode(my_decoder,
+            decoder_outputs_t, decoder_states_t, final_state_t, decoder_output_len_t = tf.contrib.seq2seq.my_dynamic_decode(my_decoder_t,
                                                                                                                     decoder_cell.state_size.cell_state,
                                                                                                    maximum_iterations=self.max_seq_length * 2,
                                                                                                    swap_memory=True)
+            #########################################
 
             if mode != tf.contrib.learn.ModeKeys.INFER:
                 with tf.device("/cpu:0"):
                     decoder_inputs = tf.nn.embedding_lookup(self.to_embeddings, self.decoder_input_ids)
+                ##################pretain with targets#####################
                 helper_pt = tf.contrib.seq2seq.TrainingHelper(decoder_inputs, self.decoder_input_length)
                 initial_state_pt = decoder_cell.zero_state(self.batch_size, tf.float32).clone(cell_state=initial_state)
                 my_decoder_pt = tf.contrib.seq2seq.BasicDecoder(cell=decoder_cell,
@@ -116,35 +126,35 @@ class Reconstructor():
                                                                                                      swap_memory=True)
                 self.sample_id_pt = decoder_outputs_pt.sample_id
                 self.decoder_logits_pt = decoder_outputs_pt.rnn_output
+                #############################################################
             else:
-                alignment_history = (final_state.alignment_history.stack())
+                alignment_history = (final_state_t.alignment_history.stack())
                 self.a = alignment_history
-                self.alignment_history = tf.unstack(tf.argmax(alignment_history, axis=2), axis=1)
-                self.sample_id = decoder_outputs.sample_id
+                self.alignment_history_t = tf.unstack(tf.argmax(alignment_history, axis=2), axis=1)
+                self.sample_id_t = decoder_outputs_t.sample_id
 
         with tf.variable_scope("reconstructor") as scope:
             if self.num_layers > 1:
                 reconstructor_cell = tf.contrib.rnn.MultiRNNCell(
-                    [tf.contrib.rnn.BasicLSTMCell(self.num_units) for _ in range(self.num_layers)])
+                    [_get_cell(self.num_units) for _ in range(self.num_layers)])
             else:
-                reconstructor_cell = tf.contrib.rnn.BasicLSTMCell(self.num_units)
-
-            initial_state = final_state.cell_state
-            memory = decoder_states[self.num_layers - 1].h
-            print('re', memory)
-            attention_mechanism_npt = tf.contrib.seq2seq.LuongAttention(num_units=self.num_units,
-                                                                        memory=memory,
+                reconstructor_cell = _get_cell(self.num_units)
+            ##############train without targets###################
+            memory_t = decoder_states_t[self.num_layers - 1].h
+            attention_mechanism_t = tf.contrib.seq2seq.LuongAttention(num_units=self.num_units,
+                                                                        memory=memory_t,
                                                                         scale=True,
-                                                                        memory_sequence_length=decoder_output_len)
-            reconstructor_cell_npt = tf.contrib.seq2seq.AttentionWrapper(reconstructor_cell,
-                                                                         attention_mechanism_npt,
+                                                                        memory_sequence_length=decoder_output_len_t)
+            reconstructor_cell_t = tf.contrib.seq2seq.AttentionWrapper(reconstructor_cell,
+                                                                         attention_mechanism_t,
                                                                          alignment_history=True,
                                                                          attention_layer_size=self.num_units)
-            initial_state_npt = reconstructor_cell_npt.zero_state(self.batch_size, tf.float32).clone(
-                cell_state=initial_state)
+            initial_state_t = reconstructor_cell_t.zero_state(self.batch_size, tf.float32).clone(
+                cell_state=final_state_t.cell_state)
+            #######################################################
 
+            ##################pretrain with targets################
             if mode != tf.contrib.learn.ModeKeys.INFER:
-                initial_state_pt = final_state_pt.cell_state
                 memory_pt = decoder_states_pt[self.num_layers - 1].h
                 attention_mechanism_pt = tf.contrib.seq2seq.LuongAttention(num_units=self.num_units,
                                                                     memory=memory_pt,
@@ -154,23 +164,26 @@ class Reconstructor():
                                                                      attention_mechanism_pt,
                                                                      alignment_history=True,
                                                                      attention_layer_size=self.num_units)
-            if mode != tf.contrib.learn.ModeKeys.INFER:
-                initial_state_pt = reconstructor_cell_pt.zero_state(self.batch_size, tf.float32).clone(cell_state=initial_state_pt)
+                initial_state_pt = reconstructor_cell_pt.zero_state(self.batch_size, tf.float32).clone(
+                    cell_state=final_state_pt.cell_state)
+            #########################################################
 
+            ##############train of pretrain##########################
+            if mode != tf.contrib.learn.ModeKeys.INFER:
                 with tf.device("/cpu:0"):
                     reconstructor_inputs = tf.nn.embedding_lookup(self.from_embeddings, self.reconstructor_input_ids)
 
-                helper = tf.contrib.seq2seq.TrainingHelper(reconstructor_inputs, self.reconstructor_input_length)
-                my_reconstructor = tf.contrib.seq2seq.BasicDecoder(cell=reconstructor_cell_npt,
-                                                             helper=helper,
-                                                             initial_state=initial_state_npt,
+                helper_t = tf.contrib.seq2seq.TrainingHelper(reconstructor_inputs, self.reconstructor_input_length)
+                my_reconstructor_t = tf.contrib.seq2seq.BasicDecoder(cell=reconstructor_cell_t,
+                                                             helper=helper_t,
+                                                             initial_state=initial_state_t,
                                                              output_layer=self.output_layer2
                                                              )
-                reconstructor_outputs, reconstructor_state, reconstructor_output_len = tf.contrib.seq2seq.dynamic_decode(my_reconstructor,
+                reconstructor_outputs_t, reconstructor_state_t, reconstructor_output_len = tf.contrib.seq2seq.dynamic_decode(my_reconstructor_t,
                                                                                                        maximum_iterations=self.max_seq_length * 2,
                                                                                                        swap_memory=True)
-                self.reconstruct_sample_id = reconstructor_outputs.sample_id
-                self.reconstructor_logits = reconstructor_outputs.rnn_output
+                self.reconstructor_sample_id_t = reconstructor_outputs_t.sample_id
+                self.reconstructor_logits_t = reconstructor_outputs_t.rnn_output
 
 
                 helper_pt = tf.contrib.seq2seq.TrainingHelper(reconstructor_inputs, self.reconstructor_input_length)
@@ -183,22 +196,22 @@ class Reconstructor():
                                                                                                                                   swap_memory=True)
                 self.reconstruct_sample_id_pt = reconstructor_outputs_pt.sample_id
                 self.reconstructor_logits_pt = reconstructor_outputs_pt.rnn_output
+            #########################infer sources#################################
             else:
-
-                helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(self.from_embeddings,
+                helper_t = tf.contrib.seq2seq.GreedyEmbeddingHelper(self.from_embeddings,
                                                                   tf.tile([hparams.GO_ID], [self.batch_size]),
                                                                   hparams.EOS_ID)
 
-                my_reconstructor = tf.contrib.seq2seq.BasicDecoder(cell=reconstructor_cell_npt,
-                                                                   helper=helper,
-                                                                   initial_state=initial_state_npt,
+                my_reconstructor_t = tf.contrib.seq2seq.BasicDecoder(cell=reconstructor_cell_t,
+                                                                   helper=helper_t,
+                                                                   initial_state=initial_state_t,
                                                                    output_layer=self.output_layer2
                                                                    )
-                reconstructor_outputs, reconstructor_state, reconstructor_output_len = tf.contrib.seq2seq.dynamic_decode(
-                    my_reconstructor,
+                reconstructor_outputs_t, reconstructor_state_t, reconstructor_output_len = tf.contrib.seq2seq.dynamic_decode(
+                    my_reconstructor_t,
                     maximum_iterations=self.max_seq_length * 2,
                     swap_memory=True)
-                self.reconstruct_sample_id = reconstructor_outputs.sample_id
+                self.reconstructor_sample_id_t = reconstructor_outputs_t.sample_id
 
 
 
@@ -209,29 +222,29 @@ class Reconstructor():
             self.reconstructor_target_weights = tf.placeholder(dtype=tf.float32, shape=[None, None])
 
             with tf.variable_scope("loss") as scope:
-                crossent = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.reconstructor_targets, logits=self.reconstructor_logits)
-                self.loss = tf.reduce_sum(crossent * self.reconstructor_target_weights) / tf.to_float(self.batch_size)
+                crossent_t = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.reconstructor_targets, logits=self.reconstructor_logits_t)
+                self.loss_t = tf.reduce_sum(crossent_t * self.reconstructor_target_weights) / tf.to_float(self.batch_size)
 
-                decoder_crossent = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.decoder_targets, logits=self.decoder_logits_pt)
-                reconstructor_crossent = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.reconstructor_targets, logits=self.reconstructor_logits_pt)
-                self.loss_pt = (tf.reduce_sum(decoder_crossent * self.decoder_target_weights)) / tf.to_float(self.batch_size)#+
-                                #0.0 * tf.reduce_sum(reconstructor_crossent * self.reconstructor_target_weights)) / tf.to_float(self.batch_size)
+                decoder_crossent_pt = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.decoder_targets, logits=self.decoder_logits_pt)
+                reconstructor_crossent_pt = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.reconstructor_targets, logits=self.reconstructor_logits_pt)
+                self.loss_pt = (tf.reduce_sum(decoder_crossent_pt * self.decoder_target_weights)) / tf.to_float(self.batch_size)#+
+                                #0.0 * tf.reduce_sum(reconstructor_crossent_pt * self.reconstructor_target_weights)) / tf.to_float(self.batch_size)
 
             if mode == tf.contrib.learn.ModeKeys.TRAIN:
-                self.global_step = tf.Variable(0, trainable=False)
+                self.global_step_t = tf.Variable(0, trainable=False)
                 self.global_step_pt = tf.Variable(0, trainable=False)
                 with tf.variable_scope("train_op") as scope:
-                    optimizer = tf.train.AdamOptimizer(self.learning_rate)
-                    gradients, v = zip(*optimizer.compute_gradients(self.loss))
-                    gradients, _ = tf.clip_by_global_norm(gradients, self.clip_value)
+                    optimizer_t = tf.train.AdamOptimizer(self.learning_rate)
+                    gradients_t, v_t = zip(*optimizer_t.compute_gradients(self.loss_t))
+                    gradients_t, _ = tf.clip_by_global_norm(gradients_t, self.clip_value)
 
                     #optimizer_pt = tf.train.AdamOptimizer(self.learning_rate)
                     optimizer_pt = tf.train.GradientDescentOptimizer(self.learning_rate)
                     gradients_pt, v_pt = zip(*optimizer_pt.compute_gradients(self.loss_pt))
                     gradients_pt, _ = tf.clip_by_global_norm(gradients_pt, self.clip_value)
 
-                    self.train_op = optimizer.apply_gradients(zip(gradients, v),
-                                                              global_step=self.global_step)
+                    self.train_op_t = optimizer_t.apply_gradients(zip(gradients_t, v_t),
+                                                                  global_step=self.global_step_t)
                     self.train_op_pt = optimizer_pt.apply_gradients(zip(gradients_pt, v_pt),
                                                               global_step=self.global_step_pt)
 

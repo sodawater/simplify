@@ -258,6 +258,7 @@ class Reconstructor():
             self.reconstructor_targets = tf.placeholder(dtype=tf.int32, shape=[None, None])
             self.reconstructor_target_weights = tf.placeholder(dtype=tf.float32, shape=[None, None])
             self.rewards = tf.placeholder(dtype=tf.float32, shape=[None, None])
+            self.reward_weights = tf.placeholder(dtype=tf.float32, shape=[None, None])
             with tf.variable_scope("loss") as scope:
                 crossent_t = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.reconstructor_targets, logits=self.reconstructor_logits_t)
                 self.loss_t = tf.reduce_sum(crossent_t * self.reconstructor_target_weights) / tf.to_float(self.batch_size)
@@ -268,8 +269,9 @@ class Reconstructor():
 
                 decoder_crossent_pt = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.decoder_targets, logits=self.decoder_logits_pt)
                 reconstructor_crossent_pt = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.reconstructor_targets, logits=self.reconstructor_logits_pt)
-                self.loss_pt = (tf.reduce_sum(decoder_crossent_pt * self.decoder_target_weights)) / tf.to_float(self.batch_size)#+
-                                #0.0 * tf.reduce_sum(reconstructor_crossent_pt * self.reconstructor_target_weights)) / tf.to_float(self.batch_size)
+                self.d_loss_pt = tf.reduce_sum(decoder_crossent_pt * self.decoder_target_weights) / tf.to_float(self.batch_size)
+                self.r_loss_pt = tf.reduce_sum(reconstructor_crossent_pt * self.reconstructor_target_weights) / tf.to_float(self.batch_size)
+                self.loss_pt = self.d_loss_pt + self.r_loss_pt
 
             if mode == tf.contrib.learn.ModeKeys.TRAIN:
                 self.global_step_t = tf.Variable(0, trainable=False)
@@ -282,7 +284,7 @@ class Reconstructor():
 
                     #optimizer_pt = tf.train.AdamOptimizer(self.learning_rate)
                     optimizer_pt = tf.train.GradientDescentOptimizer(self.learning_rate)
-                    gradients_pt, v_pt = zip(*optimizer_pt.compute_gradients(self.loss_pt))
+                    gradients_pt, v_pt = zip(*optimizer_pt.compute_gradients(self.d_loss_pt))
                     gradients_pt, _ = tf.clip_by_global_norm(gradients_pt, self.clip_value)
 
                     optimizer_ro = tf.train.GradientDescentOptimizer(self.learning_rate)
@@ -295,7 +297,6 @@ class Reconstructor():
                                                               global_step=self.global_step_pt)
                     self.train_op_ro = optimizer_pt.apply_gradients(zip(gradients_ro, v_ro),
                                                                     global_step=self.global_step_ro)
-
 
 
         self.saver = tf.train.Saver(tf.global_variables())
@@ -346,6 +347,48 @@ class Reconstructor():
     def train_step(self):
         return
 
+    def get_random_samples(self, sess, data, buckets, bucket_id, batch_size):
+        encoder_in, decoder_in, reconstructor_in = self.get_batch(self, data, buckets, bucket_id, batch_size)
+        encoder_inputs, encoder_sequence_length = encoder_in
+        feed = {self.encoder_input_ids: encoder_inputs,
+                self.encoder_input_length: encoder_sequence_length}
+        samples = sess.run([self.sample_id_t], feed_dict=feed)
+        samples = samples.tolist()
+        real_samples = []
+        for sample in samples:
+            if self.hparams.EOS_ID in sample:
+                sample = sample[:sample.index(self.hparams.EOS_ID)]
+            real_samples.append(sample)
+        return samples
+
+    def eval_loss(self, sess_r, data, buckets, bucket_id, batch_size):
+        encoder_in, decoder_in, reconstructor_in = self.get_batch(self, data, buckets, bucket_id, batch_size)
+        encoder_inputs, encoder_sequence_length = encoder_in
+        decoder_inputs, decoder_targets, decoder_target_weights, decoder_sequence_length = decoder_in
+        feed = {self.encoder_input_ids: encoder_inputs,
+                self.encoder_input_length: encoder_sequence_length,
+                self.decoder_input_ids: decoder_inputs,
+                self.decoder_input_length: decoder_sequence_length,
+                self.decoder_targets: decoder_targets,
+                self.decoder_target_weights: decoder_target_weights}
+        loss = sess_r.run([self.d_loss_pt], feed_dict=feed)
+        return loss
+
+    def pretrain_step(self, sess_r, data, buckets, bucket_id, batch_size):
+        encoder_in, decoder_in, reconstructor_in = self.get_batch(self, data, buckets, bucket_id, batch_size)
+        encoder_inputs, encoder_sequence_length = encoder_in
+        decoder_inputs, decoder_targets, decoder_target_weights, decoder_sequence_length = decoder_in
+        feed = {self.encoder_input_ids:encoder_inputs,
+                self.encoder_input_length:encoder_sequence_length,
+                self.decoder_input_ids:decoder_inputs,
+                self.decoder_input_length:decoder_sequence_length,
+                self.decoder_targets:decoder_targets,
+                self.decoder_target_weights:decoder_target_weights}
+        loss, global_step, _ = sess_r.run([self.d_loss_pt,
+                                           self.global_step_pt,
+                                           self.train_op_pt], feed_dict=feed)
+        return loss, global_step
+
     def adversarial_train_step(self, sess_r, sess_d, data, buckets, bucket_id, batch_size, discriminator, rollout_num):
         encoder_in, decoder_in, reconstructor_in = self.get_batch(self, data, buckets, bucket_id, batch_size)
         encoder_inputs, encoder_sequence_length = encoder_in
@@ -354,7 +397,17 @@ class Reconstructor():
         feed = {self.encoder_input_ids: encoder_inputs,
                 self.encoder_input_length: encoder_sequence_length}
         samples = sess_r.run([self.sample_id_t], feed_dict=feed)
-        rewards = self.get_reward(sess_r, sess_d, encoder_in, samples, discriminator, rollout_num)
+        rewards, reward_weights = self.get_reward(sess_r, sess_d, encoder_in, samples, discriminator, rollout_num)
+
+        feed = {self.encoder_input_ids:encoder_inputs,
+                self.encoder_input_length:encoder_sequence_length,
+                self.reconstructor_input_ids:reconstructor_inputs,
+                self.reconstructor_input_length:recon_sequence_length,
+                self.reconstructor_target_weights:reconstructor_target_weights,
+                self.rewards:rewards,
+                self.reward_weights:reward_weights}
+        loss, global_step, _ = sess_r.run([self.loss_ro, self.global_step_ro, self.train_op_ro], feed_dict=feed)
+        return loss, global_step
 
     def get_reward(self, sess_r, sess_d, encoder_in, samples, discriminator, rollout_num):
         encoder_inputs, encoder_sequence_length = encoder_in
@@ -408,9 +461,22 @@ class Reconstructor():
         ypred = np.array(item[1] for item in ypred_for_auc)
         rewards.append(ypred * rollout_num)
         rewards = np.transpose(np.array(rewards)) / (1.0 * rollout_num)
-        return rewards
-    
-    def padding(self, max_length=0):
-        return
+        return rewards, decoder_target_weights
+
+    def padding(self, samples, max_length=0):
+        samples = samples.tolist()
+        if max_length == 0:
+            for sample in samples:
+                if len(sample) > max_length:
+                    max_length = len(sample)
+        padded_samples = []
+        origin_length = []
+        for sample in samples:
+            length = len(sample)
+            origin_length.append(length)
+            pad_size = max_length - length
+            pad_sample = sample + [self.hparams.PAD_ID] * pad_size
+            padded_samples.append(pad_sample)
+        return padded_samples, origin_length
     #def decode(self, sess, encoder_inputs):
 

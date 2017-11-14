@@ -46,7 +46,7 @@ class Reconstructor():
             self.output_layer2 = layers_core.Dense(self.from_vocab_size, use_bias=False)
 
         def _get_cell(num_units):
-            return tf.contrib.rnn.DropoutWrappper(tf.contrib.rnn.BasicLSTMCell(num_units),
+            return tf.contrib.rnn.DropoutWrapper(tf.contrib.rnn.BasicLSTMCell(num_units),
                                                   input_keep_prob=self.keep_prob)
         with tf.variable_scope("encoder") as scope:
             if self.num_layers > 1:
@@ -144,11 +144,11 @@ class Reconstructor():
                     rollout_inputs = tf.nn.embedding_lookup(self.to_embeddings, self.rollout_input_ids)
                 rollout_cell = decoder_cell
                 memory_rollout = tf.concat([encoder_outputs_fw, encoder_outputs_bw], axis=2)
-                initial_state_ro = rollout_cell.zero_sate(self.batch_size, tf.float32).clone(cell_state=encoder_state)
-                attention_mechanism_ro = tf.contrib.seq2seq.LuongAttention(num_units=self.num_units,
-                                                                           memory=memory_rollout,
-                                                                           scale=True,
-                                                                           memory_sequence_length=self.encoder_input_length)
+                initial_state_ro = rollout_cell.zero_state(self.batch_size, tf.float32).clone(cell_state=encoder_state)
+                # attention_mechanism_ro = tf.contrib.seq2seq.LuongAttention(num_units=self.num_units,
+                #                                                            memory=memory_rollout,
+                #                                                            scale=True,
+                #                                                            memory_sequence_length=self.encoder_input_length)
 
                 helper_ro = tf.contrib.seq2seq.TrainingHelper(rollout_inputs, self.rollout_input_length)
                 rollout_decoder = tf.contrib.seq2seq.BasicDecoder(cell=rollout_cell,
@@ -278,7 +278,7 @@ class Reconstructor():
                 self.global_step_pt = tf.Variable(0, trainable=False)
                 self.global_step_ro = tf.Variable(0, trainable=False)
                 with tf.variable_scope("train_op") as scope:
-                    optimizer_t = tf.train.AdamOptimizer(self.learning_rate)
+                    optimizer_t = tf.train.GradientDescentOptimizer(self.learning_rate)
                     gradients_t, v_t = zip(*optimizer_t.compute_gradients(self.loss_t))
                     gradients_t, _ = tf.clip_by_global_norm(gradients_t, self.clip_value)
 
@@ -375,22 +375,27 @@ class Reconstructor():
         return loss
 
     def pretrain_step(self, sess_r, data, buckets, bucket_id, batch_size):
-        encoder_in, decoder_in, reconstructor_in = self.get_batch(self, data, buckets, bucket_id, batch_size)
+        encoder_in, decoder_in, reconstructor_in = self.get_batch(data, buckets, bucket_id, batch_size)
         encoder_inputs, encoder_sequence_length = encoder_in
         decoder_inputs, decoder_targets, decoder_target_weights, decoder_sequence_length = decoder_in
+        reconstructor_inputs, reconstructor_targets, reconstructor_target_weights, reconstructor_seq_length = reconstructor_in
         feed = {self.encoder_input_ids:encoder_inputs,
                 self.encoder_input_length:encoder_sequence_length,
                 self.decoder_input_ids:decoder_inputs,
                 self.decoder_input_length:decoder_sequence_length,
                 self.decoder_targets:decoder_targets,
-                self.decoder_target_weights:decoder_target_weights}
+                self.decoder_target_weights:decoder_target_weights,
+                self.reconstructor_input_ids:reconstructor_inputs,
+                self.reconstructor_input_length:reconstructor_seq_length,
+                self.reconstructor_targets:reconstructor_targets,
+                self.reconstructor_target_weights:reconstructor_target_weights}
         loss, global_step, _ = sess_r.run([self.d_loss_pt,
                                            self.global_step_pt,
                                            self.train_op_pt], feed_dict=feed)
         return loss, global_step
 
     def adversarial_train_step(self, sess_r, sess_d, data, buckets, bucket_id, batch_size, discriminator, rollout_num):
-        encoder_in, decoder_in, reconstructor_in = self.get_batch(self, data, buckets, bucket_id, batch_size)
+        encoder_in, decoder_in, reconstructor_in = self.get_batch(data, buckets, bucket_id, batch_size)
         encoder_inputs, encoder_sequence_length = encoder_in
         decoder_inputs, decoder_targets, decoder_target_weights, decoder_sequence_length = decoder_in
         reconstructor_inputs, reconstructor_targets, reconstructor_target_weights, recon_sequence_length = reconstructor_in

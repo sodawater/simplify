@@ -426,32 +426,27 @@ def train_dis(hparams, train=True, interact=False):
             raise ValueError("ckpt file not found.")
 
 def generate_samples(model, sess, generated_num, dataset, buckets, bucket_id, batch_size):
-    gen_set = []
+    gen_set = [[]]
     for _ in range(int(generated_num / batch_size)):
         bucket_id = 0
         samples = model.get_random_samples(sess, dataset, buckets, bucket_id, batch_size)
-        gen_set.extend(samples)
+        gen_set[0].extend(samples)
     return gen_set
 
 def train_recon(hparams, pretrain=True, train=True, interact=False):
     recon_hparams = copy.deepcopy(hparams)
-    recon_hparams.add_hparam(name="recon_ckpt_path", value=os.path.join(hparams.recon_ckpt_dir, "recon.ckpt"))
-    train_model, eval_model, infer_model = create_model(recon_hparams, Reconstructor)
+    recon_hparams.add_hparam(name="g_ckpt_path", value=os.path.join(hparams.recon_g_ckpt_dir, "g_recon.ckpt"))
+    recon_hparams.add_hparam(name="d_ckpt_path", value=os.path.join(hparams.recon_d_ckpt_dir, "d_recon.ckpt"))
+    g_train_model, g_eval_model, g_infer_model = create_model(recon_hparams, Reconstructor)
+    d_train_model, d_eval_model, d_infer_model = create_model(recon_hparams, Discriminator_RNN)
     config = tf.ConfigProto()
     config.gpu_options.allow_growth = True
-    train_sess = tf.Session(config=config, graph=train_model.graph)
-    eval_sess = tf.Session(config=config, graph=eval_model.graph)
-    infer_sess = tf.Session(config=config, graph=infer_model.graph)
-
-    ckpt = tf.train.get_checkpoint_state(recon_hparams.recon_ckpt_dir)
-    global_step = 0
-    with train_model.graph.as_default():
-        if ckpt and tf.train.checkpoint_exists(ckpt.model_checkpoint_path):
-            print("Reading model parameters from %s" % ckpt.model_checkpoint_path)
-            train_model.model.saver.restore(train_sess, ckpt.model_checkpoint_path)
-            global_step = train_model.model.global_step.eval(session=train_sess)
-        else:
-            train_sess.run(tf.global_variables_initializer())
+    g_train_sess = tf.Session(config=config, graph=g_train_model.graph)
+    g_eval_sess = tf.Session(config=config, graph=g_eval_model.graph)
+    g_infer_sess = tf.Session(config=config, graph=g_infer_model.graph)
+    d_train_sess = tf.Session(config=config, graph=d_train_model.graph)
+    d_eval_sess = tf.Session(config=config, graph=d_eval_model.graph)
+    d_infer_sess = tf.Session(config=config, graph=d_infer_model.graph)
 
     train_set = read_data_pair(recon_hparams.from_train, recon_hparams.to_train, recon_hparams.max_train_data_size)
     train_set_pair, train_set_backup = split_dataset(train_set, 0.1)
@@ -469,11 +464,20 @@ def train_recon(hparams, pretrain=True, train=True, interact=False):
     num_train_steps = recon_hparams.num_train_epoch * int(train_total_size_pair / FLAGS.batch_size)
     num_pretrain_steps = train_total_size_pair
     if pretrain:
+
+        ckpt = tf.train.get_checkpoint_state(recon_hparams.recon_g_ckpt_dir)
+        with g_train_model.graph.as_default():
+            if ckpt and tf.train.checkpoint_exists(ckpt.model_checkpoint_path):
+                print("Reading model parameters from %s" % ckpt.model_checkpoint_path)
+                g_train_model.model.saver.restore(g_train_sess, ckpt.model_checkpoint_path)
+                global_step = g_train_model.model.global_step.eval(session=g_train_sess)
+            else:
+                g_train_sess.run(tf.global_variables_initializer())
         while global_step < num_pretrain_steps:
             random_number_01 = np.random.random_sample()
             bucket_id = min([i for i in range(len(train_buckets_scale_pair))
                              if train_buckets_scale_pair[i] > random_number_01])
-            loss, global_step = train_model.model.pretrain_step(train_sess,
+            loss, global_step = g_train_model.model.pretrain_step(g_train_sess,
                                                                 train_set_pair,
                                                                 _buckets,
                                                                 bucket_id,
@@ -481,16 +485,16 @@ def train_recon(hparams, pretrain=True, train=True, interact=False):
             if global_step % 50 == 0:
                 print(loss)
             if global_step % recon_hparams.steps_per_eval == 0:
-                train_model.model.saver.save(train_sess, recon_hparams.recon_ckpt_path, global_step=global_step)
+                g_train_model.model.saver.save(g_train_sess, recon_hparams.recon_ckpt_path, global_step=global_step)
                 ckpt = tf.train.get_checkpoint_state(recon_hparams.recon_ckpt_dir)
                 if ckpt and tf.train.checkpoint_exists(ckpt.model_checkpoint_path):
-                    eval_model.model.saver.restore(eval_sess, ckpt.model_checkpoint_path)
+                    g_eval_model.model.saver.restore(g_eval_sess, ckpt.model_checkpoint_path)
                 else:
                     raise ValueError("ckpt file not found.")
                 random_number_02 = np.random.random_sample()
                 bucket_id = min([i for i in range(len(valid_buckets_scale_pair))
                                  if valid_buckets_scale_pair[i] > random_number_02])
-                loss = eval_model.model.eval_step(eval_sess,
+                loss = g_eval_model.model.eval_step(g_eval_sess,
                                                   valid_set_pair,
                                                   _buckets,
                                                   bucket_id,
@@ -498,17 +502,40 @@ def train_recon(hparams, pretrain=True, train=True, interact=False):
                 # print(loss)
                 print("step %d with eval loss %f" % (global_step, loss))
 
-        gen_set = generate_samples(train_model.model,
-                                   train_sess,
+        gen_set = generate_samples(g_train_model.model,
+                                   g_train_sess,
                                    train_total_size_pair,
                                    train_set_pair,
                                    _buckets,
                                    0,
                                    recon_hparams.batch_size)
+
+        ckpt = tf.train.get_checkpoint_state(recon_hparams.recon_d_ckpt_dir)
+        with d_train_model.graph.as_default():
+            if ckpt and tf.train.checkpoint_exists(ckpt.model_checkpoint_path):
+                print("Reading model parameters from %s" % ckpt.model_checkpoint_path)
+                d_train_model.model.saver.restore(d_train_sess, ckpt.model_checkpoint_path)
+                global_step = d_train_model.model.global_step.eval(session=d_train_sess)
+            else:
+                g_train_sess.run(tf.global_variables_initializer())
+                global_step = 0
+
+        while global_step < num_pretrain_steps:
+            random_number_03 = np.random.random_sample()
+            bucket_id = min([i for i in range(len(train_buckets_scale_pair))
+                             if train_buckets_scale_pair[i] > random_number_03])
+            loss, accuracy, global_step = d_train_model.model.train_step(d_train_sess,
+                                                               train_set_pair,
+                                                               gen_set,
+                                                               _buckets,
+                                                               bucket_id,
+                                                               recon_hparams.batch_size)
+            print("step %d with accuracy %f" % (global_step, accuracy))
+
     # else:
     #     ckpt = tf.train.get_checkpoint_state(recon_hparams.recon_ckpt_dir)
     #     if ckpt and tf.train.checkpoint_exists(ckpt.model_checkpoint_path):
-    #         infer_model.model.saver.restore(infer_sess, ckpt.model_checkpoint_path)
+    #         g_infer_model.model.saver.restore(g_infer_sess, ckpt.model_checkpoint_path)
     #         from_vocab_path = os.path.join(recon_hparams.data_dir,
     #                                        "vocab%d.from" % recon_hparams.from_vocab_size)
     #         to_vocab_path = os.path.join(recon_hparams.data_dir,
@@ -527,11 +554,11 @@ def train_recon(hparams, pretrain=True, train=True, interact=False):
     #                 encoder_inputs = [token_ids + [recon_hparams.EOS_ID]]
     #                 print(encoder_inputs)
     #                 source_sequence_length = [len(token_ids) + 1]
-    #                 feed = {infer_model.model.encoder_input_ids: encoder_inputs,
-    #                         infer_model.model.encoder_input_length: source_sequence_length}
-    #                 sample_outputs, alignment, h = infer_sess.run([infer_model.model.sample_id,
-    #                                                  infer_model.model.alignment_history,
-    #                                                  infer_model.model.a],
+    #                 feed = {g_infer_model.model.encoder_input_ids: encoder_inputs,
+    #                         g_infer_model.model.encoder_input_length: source_sequence_length}
+    #                 sample_outputs, alignment, h = g_infer_sess.run([g_infer_model.model.sample_id,
+    #                                                  g_infer_model.model.alignment_history,
+    #                                                  g_infer_model.model.a],
     #                                                 feed_dict=feed)
     #                 print(alignment)
     #                 sample_outputs = sample_outputs[0].tolist()
@@ -564,10 +591,10 @@ def train_recon(hparams, pretrain=True, train=True, interact=False):
     #                 token_ids = data_utils.sentence_to_token_ids(sentence, from_vocab)
     #                 encoder_inputs = [token_ids + [recon_hparams.EOS_ID]]
     #                 source_sequence_length = [len(token_ids) + 1]
-    #                 feed = {infer_model.model.encoder_input_ids: encoder_inputs,
-    #                         infer_model.model.encoder_input_length: source_sequence_length}
-    #                 sample_outputs, alignment = infer_sess.run([infer_model.model.sample_id,
-    #                                                             infer_model.model.alignment_history],
+    #                 feed = {g_infer_model.model.encoder_input_ids: encoder_inputs,
+    #                         g_infer_model.model.encoder_input_length: source_sequence_length}
+    #                 sample_outputs, alignment = g_infer_sess.run([g_infer_model.model.sample_id,
+    #                                                             g_infer_model.model.alignment_history],
     #                                                            feed_dict=feed)
     #                 sample_outputs = sample_outputs[0].tolist()
     #                 if recon_hparams.EOS_ID in sample_outputs:
@@ -596,21 +623,21 @@ def train_recon(hparams, pretrain=True, train=True, interact=False):
             random_number_01 = np.random.random_sample()
             bucket_id = min([i for i in range(len(train_buckets_scale_pair))
                              if train_buckets_scale_pair[i] > random_number_01])
-            encoder_in, decoder_in, reconstructor_in = train_model.model.get_batch(
+            encoder_in, decoder_in, reconstructor_in = g_train_model.model.get_batch(
                 train_set_pair, _buckets,
                 bucket_id, recon_hparams.batch_size)
             encoder_inputs, encoder_sequence_length = encoder_in
             decoder_inputs, decoder_targets, decoder_target_weights, decoder_sequence_length = decoder_in
             reconstructor_inputs, reconstructor_targets, reconstructor_target_weights, recon_sequence_length = reconstructor_in
-            feed = {train_model.model.encoder_input_ids: encoder_inputs,
-                    train_model.model.encoder_input_length: encoder_sequence_length,
-                    train_model.model.reconstructor_input_ids: reconstructor_inputs,
-                    train_model.model.reconstructor_input_length: recon_sequence_length,
-                    train_model.model.targets: targets,
-                    train_model.model.target_weights: target_weights}
-            loss, _, global_step = train_sess.run([train_model.model.loss,
-                                                   train_model.model.train_op,
-                                                   train_model.model.global_step
+            feed = {g_train_model.model.encoder_input_ids: encoder_inputs,
+                    g_train_model.model.encoder_input_length: encoder_sequence_length,
+                    g_train_model.model.reconstructor_input_ids: reconstructor_inputs,
+                    g_train_model.model.reconstructor_input_length: recon_sequence_length,
+                    g_train_model.model.targets: targets,
+                    g_train_model.model.target_weights: target_weights}
+            loss, _, global_step = g_train_sess.run([g_train_model.model.loss,
+                                                   g_train_model.model.train_op,
+                                                   g_train_model.model.global_step
                                                    ], feed_dict=feed)
 
             # print(loss/_source_buckets[bucket_id])
@@ -618,34 +645,34 @@ def train_recon(hparams, pretrain=True, train=True, interact=False):
             if global_step % 50 == 0:
                 print(loss / _source_buckets[bucket_id])
             #if global_step % 1000 == 0:
-            #    learning_rate = train_sess.run(train_model.model.learning_rate_decay_op)
+            #    learning_rate = g_train_sess.run(g_train_model.model.learning_rate_decay_op)
             #    print("learning rate is %f now" % learning_rate)
             if global_step % recon_hparams.steps_per_eval == 0:
-                train_model.model.saver.save(train_sess, recon_hparams.recon_ckpt_path, global_step=global_step)
+                g_train_model.model.saver.save(g_train_sess, recon_hparams.recon_ckpt_path, global_step=global_step)
                 ckpt = tf.train.get_checkpoint_state(recon_hparams.recon_ckpt_dir)
                 if ckpt and tf.train.checkpoint_exists(ckpt.model_checkpoint_path):
-                    eval_model.model.saver.restore(eval_sess, ckpt.model_checkpoint_path)
+                    g_eval_model.model.saver.restore(g_eval_sess, ckpt.model_checkpoint_path)
                 else:
                     raise ValueError("ckpt file not found.")
                 random_number_02 = np.random.random_sample()
                 bucket_id = min([i for i in range(len(valid_buckets_scale_pair))
                                  if valid_buckets_scale_pair[i] > random_number_02])
-                encoder_inputs, reconstructor_inputs, targets, target_weights, source_sequence_length, target_sequence_length = train_model.model.get_batch(
+                encoder_inputs, reconstructor_inputs, targets, target_weights, source_sequence_length, target_sequence_length = g_train_model.model.get_batch(
                     valid_set_pair, _buckets,
                     bucket_id, recon_hparams.batch_size)
-                feed = {eval_model.model.encoder_input_ids: encoder_inputs,
-                        eval_model.model.encoder_input_length: source_sequence_length,
-                        eval_model.model.reconstructor_input_ids: reconstructor_inputs,
-                        eval_model.model.reconstructor_input_length: target_sequence_length,
-                        eval_model.model.targets: targets,
-                        eval_model.model.target_weights: target_weights}
-                loss = eval_sess.run(eval_model.model.loss, feed_dict=feed)
+                feed = {g_eval_model.model.encoder_input_ids: encoder_inputs,
+                        g_eval_model.model.encoder_input_length: source_sequence_length,
+                        g_eval_model.model.reconstructor_input_ids: reconstructor_inputs,
+                        g_eval_model.model.reconstructor_input_length: target_sequence_length,
+                        g_eval_model.model.targets: targets,
+                        g_eval_model.model.target_weights: target_weights}
+                loss = g_eval_sess.run(g_eval_model.model.loss, feed_dict=feed)
                 # print(loss)
                 print("step %d with eval loss %f" % (global_step, loss / _source_buckets[bucket_id]))
     else:
         ckpt = tf.train.get_checkpoint_state(recon_hparams.recon_ckpt_dir)
         if ckpt and tf.train.checkpoint_exists(ckpt.model_checkpoint_path):
-            infer_model.model.saver.restore(infer_sess, ckpt.model_checkpoint_path)
+            g_infer_model.model.saver.restore(g_infer_sess, ckpt.model_checkpoint_path)
             from_vocab_path = os.path.join(recon_hparams.data_dir,
                                            "vocab%d.from" % recon_hparams.from_vocab_size)
             to_vocab_path = os.path.join(recon_hparams.data_dir,
@@ -663,10 +690,10 @@ def train_recon(hparams, pretrain=True, train=True, interact=False):
                     token_ids = data_utils.sentence_to_token_ids(sentence, from_vocab)
                     encoder_inputs = [token_ids + [recon_hparams.EOS_ID]]
                     source_sequence_length = [len(token_ids) + 1]
-                    feed = {infer_model.model.encoder_input_ids: encoder_inputs,
-                            infer_model.model.encoder_input_length: source_sequence_length}
-                    sample_outputs, alignment = infer_sess.run([infer_model.model.sample_id,
-                                                     infer_model.model.alignment_history],
+                    feed = {g_infer_model.model.encoder_input_ids: encoder_inputs,
+                            g_infer_model.model.encoder_input_length: source_sequence_length}
+                    sample_outputs, alignment = g_infer_sess.run([g_infer_model.model.sample_id,
+                                                     g_infer_model.model.alignment_history],
                                                     feed_dict=feed)
                     sample_outputs = sample_outputs[0].tolist()
                     if recon_hparams.EOS_ID in sample_outputs:
@@ -695,10 +722,10 @@ def train_recon(hparams, pretrain=True, train=True, interact=False):
                     token_ids = data_utils.sentence_to_token_ids(sentence, from_vocab)
                     encoder_inputs = [token_ids + [recon_hparams.EOS_ID]]
                     source_sequence_length = [len(token_ids) + 1]
-                    feed = {infer_model.model.encoder_input_ids: encoder_inputs,
-                            infer_model.model.encoder_input_length: source_sequence_length}
-                    sample_outputs, alignment = infer_sess.run([infer_model.model.sample_id,
-                                                                infer_model.model.alignment_history],
+                    feed = {g_infer_model.model.encoder_input_ids: encoder_inputs,
+                            g_infer_model.model.encoder_input_length: source_sequence_length}
+                    sample_outputs, alignment = g_infer_sess.run([g_infer_model.model.sample_id,
+                                                                g_infer_model.model.alignment_history],
                                                                feed_dict=feed)
                     sample_outputs = sample_outputs[0].tolist()
                     if recon_hparams.EOS_ID in sample_outputs:

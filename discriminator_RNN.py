@@ -110,5 +110,36 @@ class Discriminator_RNN():
 
         return encoder_inputs, targets, source_sequence_length
 
+    def get_pretrain_batch(self, pos_set, neg_set, buckets, bucket_id, batch_size):
+        size = buckets[bucket_id]
+        encoder_inputs = []
+        targets = []
+        source_sequence_length = []
+        for _ in range(batch_size):
+            _, pos_input = random.choice(pos_set[bucket_id])
+            pad_size = size - len(pos_input)
+            encoder_inputs.append(pos_input + [data_utils.PAD_ID] * pad_size)
+            targets.append([0, 1])
+            source_sequence_length.append(len(pos_input))
+
+            neg_input = random.choice(neg_set[bucket_id])
+            pad_size = size - len(neg_input)
+            encoder_inputs.append(neg_input + [data_utils.PAD_ID] * pad_size)
+            targets.append([1, 0])
+            source_sequence_length.append(len(neg_input))
+
+        return encoder_inputs, targets, source_sequence_length
+
+    def train_step(self, sess, pos_set, neg_set, buckets, bucket_id, batch_size):
+        encoder_inputs, targets, source_sequence_length = self.get_pretrain_batch(pos_set, neg_set, buckets, bucket_id, batch_size)
+        feed = {self.encoder_input_ids:encoder_inputs,
+                self.encoder_input_length:source_sequence_length,
+                self.targets:targets}
+        loss, diff, global_step, _ = sess.run([self.loss,
+                                               self.absolute_diff,
+                                               self.global_step,
+                                               self.train_op], feed_dict=feed)
+        accuracy = 1 - (diff / (2.0 * batch_size))
+        return loss, accuracy, global_step
     #def decode(self, sess, encoder_inputs):
 

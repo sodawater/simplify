@@ -477,11 +477,11 @@ def train_recon(hparams, pretrain=True, train=True, interact=False):
             if ckpt and tf.train.checkpoint_exists(ckpt.model_checkpoint_path):
                 print("Reading model parameters from %s" % ckpt.model_checkpoint_path)
                 g_train_model.model.saver.restore(g_train_sess, ckpt.model_checkpoint_path)
-                global_step = g_train_model.model.global_step.eval(session=g_train_sess)
+                global_step_pt = g_train_model.model.global_step_pt.eval(session=g_train_sess)
             else:
                 g_train_sess.run(tf.global_variables_initializer())
-                global_step = 0
-        while global_step < num_pretrain_steps:
+                global_step_pt = 0
+        while global_step_pt < num_pretrain_steps:
             random_number_01 = np.random.random_sample()
             bucket_id = min([i for i in range(len(train_buckets_scale_pair))
                              if train_buckets_scale_pair[i] > random_number_01])
@@ -523,12 +523,12 @@ def train_recon(hparams, pretrain=True, train=True, interact=False):
             if ckpt and tf.train.checkpoint_exists(ckpt.model_checkpoint_path):
                 print("Reading model parameters from %s" % ckpt.model_checkpoint_path)
                 d_train_model.model.saver.restore(d_train_sess, ckpt.model_checkpoint_path)
-                global_step = d_train_model.model.global_step.eval(session=d_train_sess)
+                global_step_pt = d_train_model.model.global_step.eval(session=d_train_sess)
             else:
                 g_train_sess.run(tf.global_variables_initializer())
-                global_step = 0
+                global_step_pt = 0
 
-        while global_step < num_pretrain_steps:
+        while global_step_pt < num_pretrain_steps:
             random_number_03 = np.random.random_sample()
             bucket_id = min([i for i in range(len(train_buckets_scale_pair))
                              if train_buckets_scale_pair[i] > random_number_03])
@@ -539,6 +539,62 @@ def train_recon(hparams, pretrain=True, train=True, interact=False):
                                                                bucket_id,
                                                                recon_hparams.batch_size)
             print("step %d with accuracy %f" % (global_step, accuracy))
+
+    if train:
+        ckpt = tf.train.get_checkpoint_state(recon_hparams.recon_g_ckpt_dir)
+        with g_train_model.graph.as_default():
+            if ckpt and tf.train.checkpoint_exists(ckpt.model_checkpoint_path):
+                print("Reading model parameters from %s" % ckpt.model_checkpoint_path)
+                g_train_model.model.saver.restore(g_train_sess, ckpt.model_checkpoint_path)
+                global_step = g_train_model.model.global_step.eval(session=g_train_sess)
+            else:
+                g_train_sess.run(tf.global_variables_initializer())
+                global_step = 0
+        ckpt = tf.train.get_checkpoint_state(recon_hparams.recon_d_ckpt_dir)
+        with d_train_model.graph.as_default():
+            if ckpt and tf.train.checkpoint_exists(ckpt.model_checkpoint_path):
+                print("Reading model parameters from %s" % ckpt.model_checkpoint_path)
+                d_train_model.model.saver.restore(d_train_sess, ckpt.model_checkpoint_path)
+            else:
+                g_train_sess.run(tf.global_variables_initializer())
+
+        while global_step < num_train_steps:
+            random_number_04 = np.random.random_sample()
+            bucket_id = min([i for i in range(len(train_buckets_scale_pair))
+                             if train_buckets_scale_pair[i] > random_number_04])
+            loss, global_step = g_train_model.model.adversarial_train_step(
+                g_train_sess,
+                d_train_sess,
+                train_set_backup,
+                _buckets,
+                bucket_id,
+                recon_hparams.batch_size,
+                d_train_model.model,
+                30)
+
+            print("step %d with adversarial train loss %f " % (global_step, loss))
+
+            if global_step % 20 == 0:
+                gen_set = generate_samples(
+                    g_train_model.model,
+                    g_train_sess,
+                    train_total_size_pair,
+                    train_set_pair,
+                    _buckets,
+                    0,
+                    recon_hparams.batch_size)
+            if global_step % 3 == 0:
+                random_number_05 = np.random.random_sample()
+                bucket_id = min([i for i in range(len(train_buckets_scale_pair))
+                                 if train_buckets_scale_pair[i] > random_number_05])
+                loss, accuracy, global_step = d_train_model.model.train_step(d_train_sess,
+                                                                             train_set_pair,
+                                                                             gen_set,
+                                                                             _buckets,
+                                                                             bucket_id)
+                print("step %d with accuracy %f " % (global_step, accuracy))
+
+
 
 
 

@@ -52,7 +52,7 @@ def add_arguments(parser):
                         help="Test data_dst path")
     parser.add_argument("--ae_ckpt_dir", type=str, default="/data/wtm/data/wikilarge/model/ae/",
                         help="ae model checkpoint directory")
-    parser.add_argument("--nmt_ckpt_dir", type=str, default="/data/wtm/data/wikilarge/model/nmt/sgd_new/",
+    parser.add_argument("--nmt_ckpt_dir", type=str, default="/data/wtm/data/wikilarge/model/nmt/sgd_test/",
                         help="nmt model checkpoint directory")
     parser.add_argument("--gan_ckpt_dir", type=str, default="/data/wtm/data/wikilarge/model/gan/",
                         help="gan model checkpoint directory")
@@ -73,7 +73,7 @@ def add_arguments(parser):
     parser.add_argument("--emb_dim", type=int, default=256, help="Dimension of word embedding")
     parser.add_argument("--batch_size", type=int, default=32, help="Batch size to use during training")
     parser.add_argument("--max_gradient_norm", type=float, default=1.0, help="Clip gradients to this norm")
-    parser.add_argument("--learning_rate_decay_factor", type=float, default=0.7, help="Learning rate decays by this much")
+    parser.add_argument("--learning_rate_decay_factor", type=float, default=0.5, help="Learning rate decays by this much")
     parser.add_argument("--learning_rate", type=float, default=1, help="Learning rate")
 
     parser.add_argument("--num_train_epoch", type=int, default=100, help="Number of epoch for training")
@@ -83,7 +83,7 @@ def add_arguments(parser):
 # We use a number of buckets and pad to the closest one for efficiency.
 # See seq2seq_model.Seq2SeqModel for details of how they work.
 #_buckets = [(15, 10), (25, 20), (35, 30), (50, 45)]
-_buckets = [(80, 80)]
+_buckets = [(90, 90)]
 _target_buckets = [10, 15, 20, 25, 30, 40, 50]
 _source_buckets = [5, 10, 15, 20, 25, 35, 45]
 _dis_buckets = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50]
@@ -626,11 +626,11 @@ def train_nmt(hparams, train=True, interact=False):
             # print(loss/_source_buckets[bucket_id])
             #print(alignment_history)
             if global_step % 50 == 0:
-                print(loss)
+                print("global_step ",global_step,":   ",loss)
                 loss_file1.write(str(loss))
                 loss_file1.write("\n")
                 #print(loss / _source_buckets[bucket_id])
-            if global_step % 2000 == 0 and global_step > 20000:
+            if global_step % 4000 == 0 and global_step >=20000:
                 learning_rate = train_sess.run(train_model.model.learning_rate_decay_op)
                 print("learning rate is %f now" % learning_rate)
             if global_step % nmt_hparams.steps_per_eval == 0:
@@ -640,26 +640,29 @@ def train_nmt(hparams, train=True, interact=False):
                     eval_model.model.saver.restore(eval_sess, ckpt.model_checkpoint_path)
                 else:
                     raise ValueError("ckpt file not found.")
-                random_number_02 = np.random.random_sample()
-                bucket_id = min([i for i in range(len(valid_buckets_scale_pair))
-                                 if valid_buckets_scale_pair[i] > random_number_02])
-                encoder_inputs, decoder_inputs, targets, target_weights, source_sequence_length, target_sequence_length = train_model.model.get_batch(
-                    valid_set_pair, _buckets,
-                    bucket_id, nmt_hparams.batch_size)
-                feed = {eval_model.model.encoder_input_ids: encoder_inputs,
-                        eval_model.model.encoder_input_length: source_sequence_length,
-                        eval_model.model.decoder_input_ids: decoder_inputs,
-                        eval_model.model.decoder_input_length: target_sequence_length,
-                        eval_model.model.targets: targets,
-                        eval_model.model.target_weights: target_weights}
-                loss = eval_sess.run(eval_model.model.loss, feed_dict=feed)
+                mean_loss = 0
+                for _ in range(50):
+                    random_number_02 = np.random.random_sample()
+                    bucket_id = min([i for i in range(len(valid_buckets_scale_pair))
+                                     if valid_buckets_scale_pair[i] > random_number_02])
+                    encoder_inputs, decoder_inputs, targets, target_weights, source_sequence_length, target_sequence_length = train_model.model.get_batch(
+                        valid_set_pair, _buckets,
+                        bucket_id, nmt_hparams.batch_size)
+                    feed = {eval_model.model.encoder_input_ids: encoder_inputs,
+                            eval_model.model.encoder_input_length: source_sequence_length,
+                            eval_model.model.decoder_input_ids: decoder_inputs,
+                            eval_model.model.decoder_input_length: target_sequence_length,
+                            eval_model.model.targets: targets,
+                            eval_model.model.target_weights: target_weights}
+                    loss = eval_sess.run(eval_model.model.loss, feed_dict=feed)
+                    mean_loss += loss
                 # print(loss)
-                loss_file2.write(str(loss))
+                loss_file2.write(str(mean_loss))
                 loss_file2.write("\n")
                 loss_file2.close()
                 loss_file2 = open("seval_loss","a",encoding="utf-8")
-                print("step %d with eval loss %f" % (global_step, loss / _source_buckets[bucket_id]))
-            if global_step % 1000 == 0:
+                print("step %d with eval loss %f" % (global_step, mean_loss))
+            if global_step % 2000 == 0:
                 ckpt = tf.train.get_checkpoint_state(nmt_hparams.nmt_ckpt_dir)
                 if ckpt and tf.train.checkpoint_exists(ckpt.model_checkpoint_path):
                     infer_model.model.saver.restore(infer_sess, ckpt.model_checkpoint_path)
@@ -676,8 +679,8 @@ def train_nmt(hparams, train=True, interact=False):
                         token_words = sentence.rstrip("\n").lower().split()
                         token_words.append("")
                         token_ids = data_utils.sentence_to_token_ids(sentence, from_vocab)
-                        encoder_inputs = [token_ids + [nmt_hparams.EOS_ID]]
-                        source_sequence_length = [len(token_ids) + 1]
+                        encoder_inputs = [token_ids]
+                        source_sequence_length = [len(token_ids)]
                         feed = {infer_model.model.encoder_input_ids: encoder_inputs,
                                 infer_model.model.encoder_input_length: source_sequence_length}
                         sample_outputs, alignment = infer_sess.run([infer_model.model.sample_id,
@@ -693,7 +696,10 @@ def train_nmt(hparams, train=True, interact=False):
                             if output != 3:
                                 outputs.append(tf.compat.as_str(rev_to_vocab[output]))
                             else:
-                                outputs.append(tf.compat.as_str(token_words[alignment[id]]))
+                                if id + 1 <= len(alignment):
+                                    outputs.append(tf.compat.as_str(token_words[alignment[id]]))
+                                else:
+                                    outputs.append(tf.compat.as_str(rev_to_vocab[output]))
                             id += 1
                         print(" ".join(outputs))
                         outfile.write(" ".join(outputs) + "\n")
@@ -718,19 +724,20 @@ def train_nmt(hparams, train=True, interact=False):
                     token_words.append("")
                     #print(token_words)
                     token_ids = data_utils.sentence_to_token_ids(sentence, from_vocab)
-                    encoder_inputs = [token_ids + [nmt_hparams.EOS_ID]]
-                    source_sequence_length = [len(token_ids) + 1]
+                    encoder_inputs = [token_ids]
+                    source_sequence_length = [len(token_ids)]
                     feed = {infer_model.model.encoder_input_ids: encoder_inputs,
                             infer_model.model.encoder_input_length: source_sequence_length}
                     sample_outputs, alignment = infer_sess.run([infer_model.model.sample_id,
                                                      infer_model.model.alignment_history],
                                                     feed_dict=feed)
                     sample_outputs = sample_outputs[0].tolist()
-                    if nmt_hparams.EOS_ID in sample_outputs:
-                        sample_outputs = sample_outputs[:sample_outputs.index(data_utils.EOS_ID)]
+                    #if nmt_hparams.EOS_ID in sample_outputs:
+                        #sample_outputs = sample_outputs[:sample_outputs.index(data_utils.EOS_ID)]
                     outputs = []
                     alignment = alignment[0].tolist()
                     print(alignment)
+                    print(encoder_inputs[0])
                     id = 0
                     for output in sample_outputs:
                         if output != 3:
@@ -1307,7 +1314,7 @@ def main(_):
         to_valid_data,  
         FLAGS.from_vocab_size,
         FLAGS.to_vocab_size,
-        same_vocab=False
+        same_vocab=True
     )
     hparams = create_hparams(FLAGS)
     hparams.add_hparam(name="from_train", value=from_train)
@@ -1317,7 +1324,7 @@ def main(_):
     from_vocab_path = os.path.join(hparams.data_dir, "vocab%d.from" % hparams.from_vocab_size)
     to_vocab_path = os.path.join(hparams.data_dir, "vocab%d.to" % hparams.to_vocab_size)
     #train_ae(hparams, train=True, interact=True)
-    train_nmt(hparams, train=True, interact=True)
+    train_nmt(hparams, train=False, interact=True)
     #train(from_train, to_train, from_dev, to_dev)
     #train_dis(hparams, train=True, interact=False)
     #train_recon(hparams, pretrain=True, train=False, interact=False)

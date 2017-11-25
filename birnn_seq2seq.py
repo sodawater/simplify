@@ -13,8 +13,12 @@ class BiRNN_seq2seq():
         self.num_layers = hparams.num_layers
         self.learning_rate = tf.Variable(float(hparams.learning_rate), trainable=False)
         self.clip_value = hparams.clip_value
-        self.max_seq_length = 50
+        self.max_seq_length = 80
         self.learning_rate_decay_op = self.learning_rate.assign(self.learning_rate * hparams.decay_factor)
+        if mode == tf.contrib.learn.ModeKeys.TRAIN:
+            self.keep_prob = 0.7
+        else:
+            self.keep_prob = 1.0
 
         if mode != tf.contrib.learn.ModeKeys.INFER:
             self.encoder_input_ids = tf.placeholder(dtype=tf.int32, shape=[None,None])
@@ -32,15 +36,19 @@ class BiRNN_seq2seq():
             self.to_embeddings = tf.Variable(self.init_matrix([self.to_vocab_size, self.emb_dim]))
             #self.to_embeddings = self.from_embeddings
         with tf.variable_scope("projection") as scope:
-            self.output_layer = layers_core.Dense(self.to_vocab_size)
+            self.output_layer = layers_core.Dense(self.to_vocab_size, use_bias=False)
 
         with tf.variable_scope("encoder") as scope:
             if self.num_layers > 1:
-                encoder_cell_fw = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.BasicLSTMCell(self.num_units) for _ in range(self.num_layers)])
-                encoder_cell_bw = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.BasicLSTMCell(self.num_units) for _ in range(self.num_layers)])
+                encoder_cell_fw = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.DropoutWrapper(tf.contrib.rnn.BasicLSTMCell(self.num_units),
+                                                                                             input_keep_prob=self.keep_prob) for _ in range(self.num_layers)])
+                encoder_cell_bw = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.DropoutWrapper(tf.contrib.rnn.BasicLSTMCell(self.num_units),
+                                                                                             input_keep_prob=self.keep_prob) for _ in range(self.num_layers)])
             else:
-                encoder_cell_fw = tf.contrib.rnn.BasicLSTMCell(self.num_units)
-                encoder_cell_bw = tf.contrib.rnn.BasicLSTMCell(self.num_units)
+                encoder_cell_fw = tf.contrib.rnn.DropoutWrapper(tf.contrib.rnn.BasicLSTMCell(self.num_units),
+                                                                output_keep_prob=self.keep_prob)
+                encoder_cell_bw = tf.contrib.rnn.DropoutWrapper(tf.contrib.rnn.BasicLSTMCell(self.num_units),
+                                                                output_keep_prob=self.keep_prob)
             with tf.device("/cpu:0"):
                 self.encoder_inputs = tf.nn.embedding_lookup(self.from_embeddings, self.encoder_input_ids)
             encoder_outputs, encoder_state = tf.nn.bidirectional_dynamic_rnn(cell_fw=encoder_cell_fw,
@@ -70,7 +78,8 @@ class BiRNN_seq2seq():
 
         with tf.variable_scope("decoder") as scope:
             if self.num_layers > 1:
-                decoder_cell = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.BasicLSTMCell(self.num_units) for _ in range(self.num_layers)])
+                decoder_cell = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.DropoutWrapper(tf.contrib.rnn.BasicLSTMCell(self.num_units),
+                                                                                          output_keep_prob=self.keep_prob) for _ in range(self.num_layers)])
             memory = tf.concat([encoder_outputs_fw, encoder_outputs_bw], axis=2)
             initial_state = encoder_state
             attention_mechanism = tf.contrib.seq2seq.LuongAttention(num_units=self.num_units,
@@ -99,7 +108,9 @@ class BiRNN_seq2seq():
                 self.sample_id = decoder_outputs.sample_id
                 self.logits = decoder_outputs.rnn_output
             else:
-                helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(self.to_embeddings, [hparams.GO_ID], hparams.EOS_ID)
+                helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(self.to_embeddings,
+                                                                  tf.fill([self.batch_size], hparams.GO_ID),
+                                                                  hparams.EOS_ID)
                 initial_state = decoder_cell.zero_state(self.batch_size, tf.float32).clone(cell_state=initial_state)
                 #initial_state = encoder_state
                 my_decoder = tf.contrib.seq2seq.BasicDecoder(cell=decoder_cell,
@@ -110,9 +121,14 @@ class BiRNN_seq2seq():
                                                                                                        maximum_iterations=self.max_seq_length * 2,
                                                                                                        swap_memory=True)
                 alignment_history = (decoder_state.alignment_history.stack())
+                print(decoder_state)
                 print(alignment_history)
                 self.alignment_history = tf.unstack(tf.argmax(alignment_history, axis=2), axis=1)
                 print(self.alignment_history)
+                self.tmp = alignment_history
+                # self.tmp = tf.summary.image("images", 255 * tf.expand_dims(tf.transpose(alignment_history,
+                #                                                                         [1,2,0]),
+                #                                                            -1))
                 self.sample_id = tf.unstack(decoder_outputs.sample_id, axis=0)
 
         if mode != tf.contrib.learn.ModeKeys.INFER:
@@ -125,7 +141,8 @@ class BiRNN_seq2seq():
             if mode == tf.contrib.learn.ModeKeys.TRAIN:
                 self.global_step = tf.Variable(0, trainable=False)
                 with tf.variable_scope("train_op") as scope:
-                    optimizer = tf.train.AdamOptimizer(self.learning_rate)
+                    optimizer = tf.train.GradientDescentOptimizer(self.learning_rate)
+                    #optimizer = tf.train.AdamOptimizer(self.learning_rate)
                     gradients, v = zip(*optimizer.compute_gradients(self.loss))
                     gradients, _ = tf.clip_by_global_norm(gradients, self.clip_value)
 
@@ -156,17 +173,16 @@ class BiRNN_seq2seq():
         # pad them if needed, reverse encoder inputs and add GO to decoder.
         for _ in range(batch_size):
             encoder_input, decoder_input = random.choice(data[bucket_id])
-
             # Decoder inputs get an extra "GO" symbol, and are padded then.
             encoder_pad_size = encoder_size - len(encoder_input)
-            decoder_pad_size = decoder_size - len(decoder_input)
+            decoder_pad_size = decoder_size -len(decoder_input)
             #print(len(encoder_input))
             encoder_inputs.append(encoder_input +
                                   [data_utils.PAD_ID] * encoder_pad_size)
             targets.append(decoder_input + [data_utils.PAD_ID] * (decoder_pad_size))
             decoder_inputs.append([data_utils.GO_ID] + decoder_input[0:len(decoder_input) - 1]
                                   + [data_utils.PAD_ID] * (decoder_pad_size))
-            target_weights.append([1.0] * (len(decoder_input)) + [0.0] * decoder_pad_size)
+            target_weights.append([1.0 / len(decoder_input)] * (len(decoder_input)) + [0.0] * (decoder_pad_size))
             source_sequence_length.append(len(encoder_input))
             target_sequence_length.append(decoder_size)
         # Now we create batch-major vectors from the data selected above.

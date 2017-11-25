@@ -31,7 +31,7 @@ class Reconstructor():
             self.decoder_input_length = tf.placeholder(dtype=tf.int32, shape=[None])
             self.reconstructor_input_ids = tf.placeholder(dtype=tf.int32, shape=[None, None])
             self.reconstructor_input_length = tf.placeholder(dtype=tf.int32, shape=[None])
-            self.batch_size = tf.size(self.reconstructor_input_length)
+            self.batch_size = tf.size(self.decoder_input_length)
         else:
             self.encoder_input_ids = tf.placeholder(dtype=tf.int32, shape=[1, None])
             self.encoder_input_length = tf.placeholder(dtype=tf.int32, shape=[1])
@@ -384,11 +384,11 @@ class Reconstructor():
                 self.decoder_input_ids:decoder_inputs,
                 self.decoder_input_length:decoder_sequence_length,
                 self.decoder_targets:decoder_targets,
-                self.decoder_target_weights:decoder_target_weights,
-                self.reconstructor_input_ids:reconstructor_inputs,
-                self.reconstructor_input_length:reconstructor_seq_length,
-                self.reconstructor_targets:reconstructor_targets,
-                self.reconstructor_target_weights:reconstructor_target_weights}
+                self.decoder_target_weights:decoder_target_weights}
+                # self.reconstructor_input_ids:reconstructor_inputs,
+                # self.reconstructor_input_length:reconstructor_seq_length,
+                # self.reconstructor_targets:reconstructor_targets,
+                # self.reconstructor_target_weights:reconstructor_target_weights}
         loss, global_step, _ = sess_r.run([self.d_loss_pt,
                                            self.global_step_pt,
                                            self.train_op_pt], feed_dict=feed)
